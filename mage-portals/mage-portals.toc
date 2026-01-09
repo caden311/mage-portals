@@ -1,0 +1,10 @@
+## Interface: 11500
+## Title: mage-portals
+## Notes: Auto-invite people who ask to buy a mage port in /yell or /1.
+## Author: You
+## Version: 0.1.0
+## SavedVariables: MagePortalsDB
+
+mage-portals.lua
+
+
