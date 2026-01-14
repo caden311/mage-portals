@@ -399,12 +399,16 @@ end
 
 local function ApplyEnabledState()
   f:UnregisterEvent("CHAT_MSG_YELL")
+  f:UnregisterEvent("CHAT_MSG_SAY")
+  f:UnregisterEvent("CHAT_MSG_WHISPER")
   f:UnregisterEvent("CHAT_MSG_CHANNEL")
   f:UnregisterEvent("TRADE_SHOW")
   f:UnregisterEvent("TRADE_CLOSED")
 
   if MagePortalsDB.enabled then
     f:RegisterEvent("CHAT_MSG_YELL")
+    f:RegisterEvent("CHAT_MSG_SAY")
+    f:RegisterEvent("CHAT_MSG_WHISPER")
     f:RegisterEvent("CHAT_MSG_CHANNEL") -- we'll filter to channel 1 in handler
     if AnyTradeFeatureEnabled() then
       f:RegisterEvent("TRADE_SHOW")
@@ -442,6 +446,22 @@ f:SetScript("OnEvent", function(_, event, ...)
     if not MsgHasWTBPort(msg) then return end
     if not CanAttemptInvite(sender) then return end
     TryInvite(sender, "yell", GetRequestedPortalFromMsg(msg))
+    return
+  end
+
+  if event == "CHAT_MSG_SAY" then
+    local msg, sender = ...
+    if not MsgHasWTBPort(msg) then return end
+    if not CanAttemptInvite(sender) then return end
+    TryInvite(sender, "say", GetRequestedPortalFromMsg(msg))
+    return
+  end
+
+  if event == "CHAT_MSG_WHISPER" then
+    local msg, sender = ...
+    if not MsgHasWTBPort(msg) then return end
+    if not CanAttemptInvite(sender) then return end
+    TryInvite(sender, "whisper", GetRequestedPortalFromMsg(msg))
     return
   end
 

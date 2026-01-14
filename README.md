@@ -2,6 +2,8 @@
 
 Auto-invites players who ask to buy a mage portal by saying **“WTB”** and **“port”** (in any order) in:
 - **/y** (Yell)
+- **/s** (Say)
+- **Whispers**
 - **/1** (Channel 1, usually General)
 
 If they include a destination keyword (like `org`), the addon will remember it and (when trade opens) show a **one-click “Cast Portal”** button.
