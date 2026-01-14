@@ -10,7 +10,7 @@ If they include a destination keyword (like `org`), the addon will remember it a
 
 1. Locate your Classic Era AddOns folder (common path):
    - `~/Library/Application Support/Battle.net/World of Warcraft/_classic_era_/Interface/AddOns/`
-2. Copy the folder `AnniversaryHelper` into `AddOns/` so you end up with:
+2. Copy the folder `mage-portals` into `AddOns/` so you end up with:
    - `.../Interface/AddOns/mage-portals/mage-portals.toc`
 3. Launch the game and enable the addon on the character select “AddOns” button.
 
@@ -23,13 +23,17 @@ If they include a destination keyword (like `org`), the addon will remember it a
 
 ### Commands
 
-- `/mp on`: enable everything (invites + trade helpers)
-- `/mp off`: disable everything
+- `/mp on`: enable addon (auto-invite on; trade helpers depend on your settings)
+- `/mp off`: disable addon (stops invites + trade helpers)
 - `/mp status`: show status
 - `/mp throttle N`: don’t re-invite the same player for N seconds (default 60)
 - `/mp autotrade on|off`: when the invited player is in trade range, attempt to open trade automatically
-- `/mp tradebutton on|off`: show a clickable “trade” button fallback (recommended to keep ON)
-- `/mp portalbutton on|off`: show a clickable “cast portal” button when trade opens (recommended to keep ON)
+- `/mp tradebutton on|off`: show a clickable “trade” button
+- `/mp portalbutton on|off`: show a clickable “cast portal” button when trade opens
+
+### Defaults
+
+By default, **only auto-invite is enabled**. Auto-trade / trade button / portal button are **off** until you turn them on.
 
 ### Auto-trade notes (important)
 
@@ -42,6 +46,7 @@ The addon recognizes these destinations (case-insensitive):
 - **Thunder Bluff**: `tb`, `thunderbluff`, `thunder bluff` → casts `Portal: Thunder Bluff`
 - **Undercity**: `uc`, `undercity` → casts `Portal: Undercity`
 - **Shattrath**: `shat`, `shatt`, `shattrath` → casts `Portal: Shattrath`
+- **Silvermoon**: `sm`, `silvermoon` → casts `Portal: Silvermoon`
 
 ### Portal casting note (important)
 

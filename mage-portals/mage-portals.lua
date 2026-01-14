@@ -21,7 +21,7 @@ local function EnsureDefaults()
 
   -- attempt to open trade automatically when invitee is in trade range
   if MagePortalsDB.autoTrade == nil then
-    MagePortalsDB.autoTrade = true
+    MagePortalsDB.autoTrade = false
   end
 
   -- how often we poll to see if the invitee is in trade range
@@ -36,12 +36,12 @@ local function EnsureDefaults()
 
   -- show a clickable button when the client blocks automatic trade
   if MagePortalsDB.showTradeButton == nil then
-    MagePortalsDB.showTradeButton = true
+    MagePortalsDB.showTradeButton = false
   end
 
-  -- show a clickable portal cast button when trade opens (recommended)
+  -- show a clickable portal cast button when trade opens
   if MagePortalsDB.showPortalButton == nil then
-    MagePortalsDB.showPortalButton = true
+    MagePortalsDB.showPortalButton = false
   end
 end
 
@@ -89,6 +89,11 @@ local function GetRequestedPortalFromMsg(msg)
     return { dest = "Shattrath", spell = "Portal: Shattrath" }
   end
 
+  -- Silvermoon (sm/silvermoon)
+  if has("%f[%a]silvermoon%f[%A]") or has("%f[%a]sm%f[%A]") then
+    return { dest = "Silvermoon", spell = "Portal: Silvermoon" }
+  end
+
   -- Orgrimmar (org/orgrimmar)
   if has("%f[%a]orgrimmar%f[%A]") or has("%f[%a]org%f[%A]") then
     return { dest = "Orgrimmar", spell = "Portal: Orgrimmar" }
@@ -133,6 +138,10 @@ local function FindGroupUnitByName(shortName)
   end
 
   return nil
+end
+
+local function AnyTradeFeatureEnabled()
+  return MagePortalsDB.autoTrade or MagePortalsDB.showTradeButton or MagePortalsDB.showPortalButton
 end
 
 local function InTradeRange(unit)
@@ -295,6 +304,11 @@ local function StartWatchingTradeFor(shortName)
       return
     end
 
+    if not AnyTradeFeatureEnabled() then
+      StopWatchingTrade()
+      return
+    end
+
     if not pendingTradeName then
       StopWatchingTrade()
       return
@@ -357,7 +371,9 @@ local function TryInvite(sender, reason, portalRequest)
       requestedAt = GetTime and GetTime() or 0,
     }
   end
-  StartWatchingTradeFor(short)
+  if AnyTradeFeatureEnabled() then
+    StartWatchingTradeFor(short)
+  end
 end
 
 local f = CreateFrame("Frame")
@@ -366,14 +382,13 @@ local function SetAddonEnabled(enabled)
   MagePortalsDB.enabled = enabled and true or false
 
   if MagePortalsDB.enabled then
-    -- Master ON enables all sub-features by default
-    MagePortalsDB.autoTrade = true
-    MagePortalsDB.showTradeButton = true
-    MagePortalsDB.showPortalButton = true
-
     ApplyEnabledState()
-    EnsureTradeButton()
-    EnsurePortalButton()
+    if MagePortalsDB.showTradeButton then
+      EnsureTradeButton()
+    end
+    if MagePortalsDB.showPortalButton then
+      EnsurePortalButton()
+    end
   else
     ApplyEnabledState()
     StopWatchingTrade()
@@ -391,8 +406,10 @@ local function ApplyEnabledState()
   if MagePortalsDB.enabled then
     f:RegisterEvent("CHAT_MSG_YELL")
     f:RegisterEvent("CHAT_MSG_CHANNEL") -- we'll filter to channel 1 in handler
-    f:RegisterEvent("TRADE_SHOW")
-    f:RegisterEvent("TRADE_CLOSED")
+    if AnyTradeFeatureEnabled() then
+      f:RegisterEvent("TRADE_SHOW")
+      f:RegisterEvent("TRADE_CLOSED")
+    end
   end
 end
 
@@ -410,8 +427,12 @@ f:SetScript("OnEvent", function(_, event, ...)
   if event == "PLAYER_LOGIN" then
     EnsureDefaults()
     ApplyEnabledState()
-    EnsureTradeButton()
-    EnsurePortalButton()
+    if MagePortalsDB.showTradeButton then
+      EnsureTradeButton()
+    end
+    if MagePortalsDB.showPortalButton then
+      EnsurePortalButton()
+    end
     Print(("Loaded (%s). Type /mp help."):format(MagePortalsDB.enabled and "on" or "off"))
     return
   end
@@ -442,13 +463,15 @@ f:SetScript("OnEvent", function(_, event, ...)
     HideTradeButton()
     -- When trade opens, show a click-to-cast portal button if we detected a destination.
     -- (Auto-casting spells is typically blocked; this keeps it reliable.)
-    if pendingTradeName then
+    if MagePortalsDB.showPortalButton and pendingTradeName then
       local req = pendingPortalRequests[pendingTradeName]
       if req and req.spell and req.dest then
         ShowPortalButtonFor(req.spell, req.dest)
       else
         HidePortalButton()
       end
+    else
+      HidePortalButton()
     end
     return
   end
@@ -467,8 +490,8 @@ SlashCmdList["MAGEPORTALS"] = function(input)
 
   if input == "" or input == "help" then
     Print("Commands:")
-    Print("/mp on        - enable everything (invites + trade helpers)")
-    Print("/mp off       - disable everything")
+    Print("/mp on        - enable addon (auto-invite on; trade helpers depend on your settings)")
+    Print("/mp off       - disable addon (stops invites + trade helpers)")
     Print("/mp status    - show current status")
     Print("/mp throttle N- ignore repeat triggers from same player for N seconds (default 60)")
     Print("/mp autotrade on|off - attempt to auto-open trade when they are in range")
@@ -490,10 +513,12 @@ SlashCmdList["MAGEPORTALS"] = function(input)
   end
 
   if input == "status" then
-    Print(("Status: %s (throttle=%ss, autotrade=%s)"):format(
+    Print(("Status: %s (throttle=%ss, autotrade=%s, tradebutton=%s, portalbutton=%s)"):format(
       MagePortalsDB.enabled and "on" or "off",
       tostring(MagePortalsDB.inviteThrottleSeconds),
-      MagePortalsDB.autoTrade and "on" or "off"
+      MagePortalsDB.autoTrade and "on" or "off",
+      MagePortalsDB.showTradeButton and "on" or "off",
+      MagePortalsDB.showPortalButton and "on" or "off"
     ))
     return
   end
@@ -508,6 +533,12 @@ SlashCmdList["MAGEPORTALS"] = function(input)
   local autotradeToggle = input:match("^autotrade%s+(on|off)$")
   if autotradeToggle then
     MagePortalsDB.autoTrade = autotradeToggle == "on"
+    if MagePortalsDB.enabled then
+      ApplyEnabledState()
+      if not AnyTradeFeatureEnabled() then
+        StopWatchingTrade()
+      end
+    end
     Print(("Auto-trade %s."):format(MagePortalsDB.autoTrade and "enabled" or "disabled"))
     return
   end
@@ -517,6 +548,17 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     MagePortalsDB.showTradeButton = tradebuttonToggle == "on"
     if not MagePortalsDB.showTradeButton then
       HideTradeButton()
+      if MagePortalsDB.enabled then
+        ApplyEnabledState()
+        if not AnyTradeFeatureEnabled() then
+          StopWatchingTrade()
+        end
+      end
+    else
+      EnsureTradeButton()
+      if MagePortalsDB.enabled then
+        ApplyEnabledState()
+      end
     end
     Print(("Trade button %s."):format(MagePortalsDB.showTradeButton and "enabled" or "disabled"))
     return
@@ -527,6 +569,17 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     MagePortalsDB.showPortalButton = portalbuttonToggle == "on"
     if not MagePortalsDB.showPortalButton then
       HidePortalButton()
+      if MagePortalsDB.enabled then
+        ApplyEnabledState()
+        if not AnyTradeFeatureEnabled() then
+          StopWatchingTrade()
+        end
+      end
+    else
+      EnsurePortalButton()
+      if MagePortalsDB.enabled then
+        ApplyEnabledState()
+      end
     end
     Print(("Portal button %s."):format(MagePortalsDB.showPortalButton and "enabled" or "disabled"))
     return
