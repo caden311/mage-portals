@@ -668,9 +668,10 @@ end)
 SLASH_MAGEPORTALS1 = "/mp"
 SLASH_MAGEPORTALS2 = "/mageportals"
 SlashCmdList["MAGEPORTALS"] = function(input)
-  input = (input or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
+  local raw = tostring(input or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  local lower = raw:lower()
 
-  if input == "" or input == "help" then
+  if lower == "" or lower == "help" then
     Print("Commands:")
     Print("/mp on        - enable addon (auto-invite on; trade helpers depend on your settings)")
     Print("/mp off       - disable addon (stops invites + trade helpers)")
@@ -685,19 +686,26 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     return
   end
 
-  if input == "on" then
+  local cmdLower, restLower = lower:match("^(%S+)%s*(.*)$")
+  cmdLower = cmdLower or ""
+  restLower = (restLower or ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+  local _, restOrig = raw:match("^(%S+)%s*(.*)$")
+  restOrig = (restOrig or ""):gsub("^%s+", ""):gsub("%s+$", "")
+
+  if cmdLower == "on" and restLower == "" then
     SetAddonEnabled(true)
     Print("Enabled.")
     return
   end
 
-  if input == "off" then
+  if cmdLower == "off" and restLower == "" then
     SetAddonEnabled(false)
     Print("Disabled.")
     return
   end
 
-  if input == "status" then
+  if cmdLower == "status" and restLower == "" then
     Print(("Status: %s (ch2=%s, debug=%s, throttle=%ss, autotrade=%s, tradebutton=%s, portalbutton=%s)"):format(
       MagePortalsDB.enabled and "on" or "off",
       MagePortalsDB.listenChannel2 and "on" or "off",
@@ -710,16 +718,23 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     return
   end
 
-  local throttleN = input:match("^throttle%s+(%d+)$")
-  if throttleN then
-    MagePortalsDB.inviteThrottleSeconds = tonumber(throttleN) or 60
+  if cmdLower == "throttle" then
+    local n = tonumber(restLower)
+    if not n then
+      Print("Usage: /mp throttle N")
+      return
+    end
+    MagePortalsDB.inviteThrottleSeconds = n
     Print(("Throttle set to %ss."):format(tostring(MagePortalsDB.inviteThrottleSeconds)))
     return
   end
 
-  local autotradeToggle = input:match("^autotrade%s+(on|off)$")
-  if autotradeToggle then
-    MagePortalsDB.autoTrade = autotradeToggle == "on"
+  if cmdLower == "autotrade" then
+    if restLower ~= "on" and restLower ~= "off" then
+      Print("Usage: /mp autotrade on|off")
+      return
+    end
+    MagePortalsDB.autoTrade = restLower == "on"
     if MagePortalsDB.enabled then
       ApplyEnabledState()
       if not AnyTradeFeatureEnabled() then
@@ -730,23 +745,27 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     return
   end
 
-  local ch2Toggle = input:match("^(ch2|channel2)%s+(on|off)$")
-  if ch2Toggle then
-    local _, onoff = input:match("^(ch2|channel2)%s+(on|off)$")
-    MagePortalsDB.listenChannel2 = onoff == "on"
+  if cmdLower == "ch2" or cmdLower == "channel2" then
+    if restLower ~= "on" and restLower ~= "off" then
+      Print("Usage: /mp ch2 on|off")
+      return
+    end
+    MagePortalsDB.listenChannel2 = restLower == "on"
     Print(("/2 (Trade) listening %s."):format(MagePortalsDB.listenChannel2 and "enabled" or "disabled"))
     return
   end
 
-  local debugArg = input:match("^debug%s+(.+)$")
-  if debugArg then
-    debugArg = debugArg:gsub("^%s+", ""):gsub("%s+$", "")
-    if debugArg == "on" then
+  if cmdLower == "debug" then
+    if restLower == "" then
+      Print("Usage: /mp debug off|on|0|1|2")
+      return
+    end
+    if restLower == "on" then
       MagePortalsDB.debugLevel = 1
-    elseif debugArg == "off" then
+    elseif restLower == "off" then
       MagePortalsDB.debugLevel = 0
     else
-      local n = tonumber(debugArg)
+      local n = tonumber(restLower)
       if n == nil then
         Print("Usage: /mp debug off|on|0|1|2")
         return
@@ -759,21 +778,26 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     return
   end
 
-  local testInviteName = input:match("^testinvite%s+(.+)$")
-  if testInviteName then
-    testInviteName = testInviteName:gsub("^%s+", ""):gsub("%s+$", "")
-    if testInviteName == "" then
+  if cmdLower == "testinvite" then
+    if restOrig == "" then
       Print("Usage: /mp testinvite Name")
       return
     end
     -- Debug helper: attempt invite without keyword matching.
-    TryInvite(testInviteName, "manual", nil)
+    TryInvite(restOrig, "manual", nil)
     return
   end
 
-  local tradebuttonToggle = input:match("^tradebutton%s+(on|off)$")
-  if tradebuttonToggle then
-    MagePortalsDB.showTradeButton = tradebuttonToggle == "on"
+  if cmdLower == "tradebutton" then
+    if restLower == "" then
+      Print(("Trade button is currently %s. Use: /mp tradebutton on|off"):format(MagePortalsDB.showTradeButton and "on" or "off"))
+      return
+    end
+    if restLower ~= "on" and restLower ~= "off" then
+      Print("Usage: /mp tradebutton on|off")
+      return
+    end
+    MagePortalsDB.showTradeButton = restLower == "on"
     if not MagePortalsDB.showTradeButton then
       HideTradeButton()
       if MagePortalsDB.enabled then
@@ -792,9 +816,16 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     return
   end
 
-  local portalbuttonToggle = input:match("^portalbutton%s+(on|off)$")
-  if portalbuttonToggle then
-    MagePortalsDB.showPortalButton = portalbuttonToggle == "on"
+  if cmdLower == "portalbutton" then
+    if restLower == "" then
+      Print(("Portal button is currently %s. Use: /mp portalbutton on|off"):format(MagePortalsDB.showPortalButton and "on" or "off"))
+      return
+    end
+    if restLower ~= "on" and restLower ~= "off" then
+      Print("Usage: /mp portalbutton on|off")
+      return
+    end
+    MagePortalsDB.showPortalButton = restLower == "on"
     if not MagePortalsDB.showPortalButton then
       HidePortalButton()
       if MagePortalsDB.enabled then
@@ -813,7 +844,7 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     return
   end
 
-  Print(("Unknown command: %q (try /mp help)"):format(input))
+  Print(("Unknown command: %q (try /mp help)"):format(raw))
 end
 
 
