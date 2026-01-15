@@ -26,6 +26,11 @@ local function EnsureDefaults()
     MagePortalsDB.debugLevel = 0
   end
 
+  -- whisper the invitee a confirmation / destination message
+  if MagePortalsDB.whisperOnInvite == nil then
+    MagePortalsDB.whisperOnInvite = false
+  end
+
   -- listen to /2 (Trade) as well as /1; off by default since we can't verify location pre-invite
   if MagePortalsDB.listenChannel2 == nil then
     MagePortalsDB.listenChannel2 = false
@@ -203,6 +208,25 @@ local function SendInviteByName(name)
     return true, "C_PartyInfo.InviteUnit"
   end
   return false, "no invite API (InviteUnit/C_PartyInfo.InviteUnit missing)"
+end
+
+local function WhisperInvitee(shortName, portalRequest)
+  if not MagePortalsDB.whisperOnInvite then return end
+  if type(shortName) ~= "string" or shortName == "" then return end
+  if type(SendChatMessage) ~= "function" then
+    Debug(1, "SendChatMessage unavailable; can't whisper invitee")
+    return
+  end
+
+  local msg
+  if portalRequest and portalRequest.dest then
+    msg = ("Let's get you to %s."):format(portalRequest.dest)
+  else
+    msg = "Where are you headed (org / tb / uc / shat / sm)?"
+  end
+
+  SendChatMessage(msg, "WHISPER", nil, shortName)
+  Debug(2, ("Whispered %s: %q"):format(shortName, msg))
 end
 
 local function InTradeRange(unit)
@@ -455,6 +479,7 @@ local function TryInvite(sender, reason, portalRequest)
 
   Debug(1, ("Invite call dispatched via %s -> %s"):format(tostring(api), short))
   Print(("Invite attempt sent to %s (%s)"):format(short, reason))
+  WhisperInvitee(short, portalRequest)
   if portalRequest and portalRequest.spell and portalRequest.dest then
     pendingPortalRequests[short] = {
       spell = portalRequest.spell,
@@ -679,6 +704,7 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     Print("/mp throttle N- ignore repeat triggers from same player for N seconds (default 60)")
     Print("/mp ch2 on|off - also listen in /2 (Trade) (default off)")
     Print("/mp debug off|on|0|1|2 - debug logging (0=off, 1=basic, 2=verbose)")
+    Print("/mp whisper on|off - whisper the invitee a confirmation / destination message")
     Print("/mp testinvite Name - manually attempt an invite (debug helper)")
     Print("/mp autotrade on|off - attempt to auto-open trade when they are in range")
     Print("/mp tradebutton on|off - show a clickable trade button fallback")
@@ -706,9 +732,10 @@ SlashCmdList["MAGEPORTALS"] = function(input)
   end
 
   if cmdLower == "status" and restLower == "" then
-    Print(("Status: %s (ch2=%s, debug=%s, throttle=%ss, autotrade=%s, tradebutton=%s, portalbutton=%s)"):format(
+    Print(("Status: %s (ch2=%s, whisper=%s, debug=%s, throttle=%ss, autotrade=%s, tradebutton=%s, portalbutton=%s)"):format(
       MagePortalsDB.enabled and "on" or "off",
       MagePortalsDB.listenChannel2 and "on" or "off",
+      MagePortalsDB.whisperOnInvite and "on" or "off",
       tostring(MagePortalsDB.debugLevel or 0),
       tostring(MagePortalsDB.inviteThrottleSeconds),
       MagePortalsDB.autoTrade and "on" or "off",
@@ -752,6 +779,16 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     end
     MagePortalsDB.listenChannel2 = restLower == "on"
     Print(("/2 (Trade) listening %s."):format(MagePortalsDB.listenChannel2 and "enabled" or "disabled"))
+    return
+  end
+
+  if cmdLower == "whisper" then
+    if restLower ~= "on" and restLower ~= "off" then
+      Print("Usage: /mp whisper on|off")
+      return
+    end
+    MagePortalsDB.whisperOnInvite = restLower == "on"
+    Print(("Whisper on invite %s."):format(MagePortalsDB.whisperOnInvite and "enabled" or "disabled"))
     return
   end
 
