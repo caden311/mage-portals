@@ -75,6 +75,7 @@ local pendingTradeStartedAt ---@type number|nil
 local tradeTicker ---@type any
 local tradeButton ---@type Button|nil
 local portalButton ---@type Button|nil
+local tradeInRangeStreak = 0
 local lastInviteAttempt ---@type { name: string|nil, at: number|nil, reason: string|nil }
 lastInviteAttempt = { name = nil, at = nil, reason = nil }
 
@@ -233,8 +234,14 @@ local function InTradeRange(unit)
   if not unit or not UnitExists(unit) then return false end
   if type(CheckInteractDistance) ~= "function" then return false end
 
-  -- Classic constants vary by client; try the common “trade” distances.
-  return (CheckInteractDistance(unit, 2) == true) or (CheckInteractDistance(unit, 1) == true)
+  -- Prefer the actual "trade" interact distance (index 2 on Classic-era clients).
+  local tradeOk = CheckInteractDistance(unit, 2)
+  if tradeOk ~= nil then
+    return tradeOk == true
+  end
+
+  -- Fallback (should be rare): some clients may return nil for index 2.
+  return CheckInteractDistance(unit, 1) == true
 end
 
 local function EnsureTradeButton()
@@ -324,6 +331,7 @@ end
 local function StopWatchingTrade()
   pendingTradeName = nil
   pendingTradeStartedAt = nil
+  tradeInRangeStreak = 0
   if tradeTicker and tradeTicker.Cancel then
     tradeTicker:Cancel()
   end
@@ -370,6 +378,7 @@ local function StartWatchingTradeFor(shortName)
 
   pendingTradeName = shortName
   pendingTradeStartedAt = GetTime and GetTime() or 0
+  tradeInRangeStreak = 0
 
   if tradeTicker and tradeTicker.Cancel then
     tradeTicker:Cancel()
@@ -409,8 +418,16 @@ local function StartWatchingTradeFor(shortName)
     local unit = FindGroupUnitByName(pendingTradeName)
     if not unit then return end
     if not InTradeRange(unit) then
+      tradeInRangeStreak = 0
       HideTradeButton()
       HidePortalButton()
+      return
+    end
+
+    -- Debounce: require them to be in trade range for 2 consecutive polls.
+    tradeInRangeStreak = tradeInRangeStreak + 1
+    if tradeInRangeStreak < 2 then
+      Debug(2, ("In trade range (streak=%d), waiting one more tick..."):format(tradeInRangeStreak))
       return
     end
 
@@ -642,9 +659,16 @@ f:SetScript("OnEvent", function(_, event, ...)
   if event == "UI_ERROR_MESSAGE" then
     -- Args vary slightly; generally (messageType, message)
     local _, message = ...
-    if (tonumber(MagePortalsDB.debugLevel) or 0) <= 0 then return end
 
     local now = GetTime and GetTime() or 0
+
+    -- If we tried to auto-trade too early, back off and wait for them to get closer.
+    if type(message) == "string" and pendingTradeName and message:lower():find("too far") then
+      tradeInRangeStreak = 0
+      recentTradeAttempts[pendingTradeName] = now
+    end
+
+    if (tonumber(MagePortalsDB.debugLevel) or 0) <= 0 then return end
     if lastInviteAttempt and lastInviteAttempt.at and (now - lastInviteAttempt.at) <= 3 then
       Debug(1, ("UI_ERROR_MESSAGE after inviting %s: %s"):format(tostring(lastInviteAttempt.name), tostring(message)))
     else
