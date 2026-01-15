@@ -192,6 +192,19 @@ local function CanSendInvite()
   return true
 end
 
+local function SendInviteByName(name)
+  -- Some clients expose global InviteUnit; others only expose C_PartyInfo.InviteUnit.
+  if type(InviteUnit) == "function" then
+    InviteUnit(name)
+    return true, "InviteUnit"
+  end
+  if C_PartyInfo and type(C_PartyInfo.InviteUnit) == "function" then
+    C_PartyInfo.InviteUnit(name)
+    return true, "C_PartyInfo.InviteUnit"
+  end
+  return false, "no invite API (InviteUnit/C_PartyInfo.InviteUnit missing)"
+end
+
 local function InTradeRange(unit)
   if not unit or not UnitExists(unit) then return false end
   if type(CheckInteractDistance) ~= "function" then return false end
@@ -418,12 +431,6 @@ local function TryInvite(sender, reason, portalRequest)
     return
   end
 
-  if type(InviteUnit) ~= "function" then
-    Debug(1, ("InviteUnit API missing; cannot invite %s"):format(short))
-    Print(("Can't invite %s (InviteUnit unavailable)."):format(short))
-    return
-  end
-
   if (tonumber(MagePortalsDB.debugLevel) or 0) >= 1 then
     local inGroup = (IsInGroup and IsInGroup()) and "yes" or "no"
     local inRaid = (IsInRaid and IsInRaid()) and "yes" or "no"
@@ -439,7 +446,14 @@ local function TryInvite(sender, reason, portalRequest)
   lastInviteAttempt.at = GetTime and GetTime() or 0
   lastInviteAttempt.reason = tostring(reason)
 
-  InviteUnit(short)
+  local sent, api = SendInviteByName(short)
+  if not sent then
+    Debug(1, ("Invite API unavailable (%s): %s"):format(short, tostring(api)))
+    Print(("Can't invite %s (%s)"):format(short, tostring(api)))
+    return
+  end
+
+  Debug(1, ("Invite call dispatched via %s -> %s"):format(tostring(api), short))
   Print(("Invite attempt sent to %s (%s)"):format(short, reason))
   if portalRequest and portalRequest.spell and portalRequest.dest then
     pendingPortalRequests[short] = {
