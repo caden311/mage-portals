@@ -70,6 +70,8 @@ local pendingTradeStartedAt ---@type number|nil
 local tradeTicker ---@type any
 local tradeButton ---@type Button|nil
 local portalButton ---@type Button|nil
+local lastInviteAttempt ---@type { name: string|nil, at: number|nil, reason: string|nil }
+lastInviteAttempt = { name = nil, at = nil, reason = nil }
 
 -- last known request per player (set when they trigger the invite)
 -- key: short player name, value: { spell: string, dest: string, requestedAt: number }
@@ -166,6 +168,28 @@ end
 
 local function AnyTradeFeatureEnabled()
   return MagePortalsDB.autoTrade or MagePortalsDB.showTradeButton or MagePortalsDB.showPortalButton
+end
+
+local function CanSendInvite()
+  -- In parties/raids, only leader/assist can invite.
+  if IsInRaid and IsInRaid() then
+    if UnitIsGroupLeader and UnitIsGroupLeader("player") then return true end
+    if UnitIsGroupAssistant and UnitIsGroupAssistant("player") then return true end
+    return false, "not raid leader/assistant"
+  end
+
+  if IsInGroup and IsInGroup() then
+    if UnitIsGroupLeader and UnitIsGroupLeader("player") then
+      -- Party size limit is 5 (including you)
+      if GetNumGroupMembers and GetNumGroupMembers() >= 5 then
+        return false, "party full"
+      end
+      return true
+    end
+    return false, "not party leader"
+  end
+
+  return true
 end
 
 local function InTradeRange(unit)
@@ -387,9 +411,36 @@ end
 
 local function TryInvite(sender, reason, portalRequest)
   local short = NormalizeSender(sender)
-  Debug(1, ("Inviting %s (reason=%s)"):format(short, tostring(reason)))
+  local ok, why = CanSendInvite()
+  if not ok then
+    Debug(1, ("Invite attempt blocked (%s): %s"):format(short, tostring(why)))
+    Print(("Can't invite %s (%s)."):format(short, tostring(why)))
+    return
+  end
+
+  if type(InviteUnit) ~= "function" then
+    Debug(1, ("InviteUnit API missing; cannot invite %s"):format(short))
+    Print(("Can't invite %s (InviteUnit unavailable)."):format(short))
+    return
+  end
+
+  if (tonumber(MagePortalsDB.debugLevel) or 0) >= 1 then
+    local inGroup = (IsInGroup and IsInGroup()) and "yes" or "no"
+    local inRaid = (IsInRaid and IsInRaid()) and "yes" or "no"
+    local isLeader = (UnitIsGroupLeader and UnitIsGroupLeader("player")) and "yes" or "no"
+    local isAssist = (UnitIsGroupAssistant and UnitIsGroupAssistant("player")) and "yes" or "no"
+    local members = (GetNumGroupMembers and GetNumGroupMembers()) or 0
+    local inCombat = (InCombatLockdown and InCombatLockdown()) and "yes" or "no"
+    Debug(1, ("Invite attempt -> %s (reason=%s) state={group=%s raid=%s leader=%s assist=%s members=%s combatLock=%s}"):format(
+      short, tostring(reason), inGroup, inRaid, isLeader, isAssist, tostring(members), inCombat
+    ))
+  end
+  lastInviteAttempt.name = short
+  lastInviteAttempt.at = GetTime and GetTime() or 0
+  lastInviteAttempt.reason = tostring(reason)
+
   InviteUnit(short)
-  Print(("Invited %s (%s)"):format(short, reason))
+  Print(("Invite attempt sent to %s (%s)"):format(short, reason))
   if portalRequest and portalRequest.spell and portalRequest.dest then
     pendingPortalRequests[short] = {
       spell = portalRequest.spell,
@@ -433,12 +484,17 @@ ApplyEnabledState = function()
   f:UnregisterEvent("CHAT_MSG_CHANNEL")
   f:UnregisterEvent("TRADE_SHOW")
   f:UnregisterEvent("TRADE_CLOSED")
+  f:UnregisterEvent("CHAT_MSG_SYSTEM")
+  f:UnregisterEvent("UI_ERROR_MESSAGE")
 
   if MagePortalsDB.enabled then
     f:RegisterEvent("CHAT_MSG_YELL")
     f:RegisterEvent("CHAT_MSG_SAY")
     f:RegisterEvent("CHAT_MSG_WHISPER")
     f:RegisterEvent("CHAT_MSG_CHANNEL") -- we'll filter to channel 1 in handler
+    -- Always register these; we only print when debug is enabled.
+    f:RegisterEvent("CHAT_MSG_SYSTEM")
+    f:RegisterEvent("UI_ERROR_MESSAGE")
     if AnyTradeFeatureEnabled() then
       f:RegisterEvent("TRADE_SHOW")
       f:RegisterEvent("TRADE_CLOSED")
@@ -544,6 +600,33 @@ f:SetScript("OnEvent", function(_, event, ...)
     return
   end
 
+  if event == "UI_ERROR_MESSAGE" then
+    -- Args vary slightly; generally (messageType, message)
+    local _, message = ...
+    if (tonumber(MagePortalsDB.debugLevel) or 0) <= 0 then return end
+
+    local now = GetTime and GetTime() or 0
+    if lastInviteAttempt and lastInviteAttempt.at and (now - lastInviteAttempt.at) <= 3 then
+      Debug(1, ("UI_ERROR_MESSAGE after inviting %s: %s"):format(tostring(lastInviteAttempt.name), tostring(message)))
+    else
+      Debug(2, ("UI_ERROR_MESSAGE: %s"):format(tostring(message)))
+    end
+    return
+  end
+
+  if event == "CHAT_MSG_SYSTEM" then
+    local sysmsg = ...
+    if (tonumber(MagePortalsDB.debugLevel) or 0) <= 0 then return end
+
+    local now = GetTime and GetTime() or 0
+    if lastInviteAttempt and lastInviteAttempt.at and (now - lastInviteAttempt.at) <= 5 then
+      Debug(1, ("SYSTEM near invite(%s): %s"):format(tostring(lastInviteAttempt.name), tostring(sysmsg)))
+    else
+      Debug(2, ("SYSTEM: %s"):format(tostring(sysmsg)))
+    end
+    return
+  end
+
   if event == "TRADE_SHOW" then
     HideTradeButton()
     -- When trade opens, show a click-to-cast portal button if we detected a destination.
@@ -581,6 +664,7 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     Print("/mp throttle N- ignore repeat triggers from same player for N seconds (default 60)")
     Print("/mp ch2 on|off - also listen in /2 (Trade) (default off)")
     Print("/mp debug off|on|0|1|2 - debug logging (0=off, 1=basic, 2=verbose)")
+    Print("/mp testinvite Name - manually attempt an invite (debug helper)")
     Print("/mp autotrade on|off - attempt to auto-open trade when they are in range")
     Print("/mp tradebutton on|off - show a clickable trade button fallback")
     Print("/mp portalbutton on|off - show a clickable portal-cast button when trade opens")
@@ -658,6 +742,18 @@ SlashCmdList["MAGEPORTALS"] = function(input)
       MagePortalsDB.debugLevel = n
     end
     Print(("Debug level set to %s."):format(tostring(MagePortalsDB.debugLevel)))
+    return
+  end
+
+  local testInviteName = input:match("^testinvite%s+(.+)$")
+  if testInviteName then
+    testInviteName = testInviteName:gsub("^%s+", ""):gsub("%s+$", "")
+    if testInviteName == "" then
+      Print("Usage: /mp testinvite Name")
+      return
+    end
+    -- Debug helper: attempt invite without keyword matching.
+    TryInvite(testInviteName, "manual", nil)
     return
   end
 
