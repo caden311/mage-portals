@@ -9,9 +9,26 @@ local function Print(msg)
   DEFAULT_CHAT_FRAME:AddMessage(("|cff33ff99%s|r: %s"):format(ADDON_NAME, tostring(msg)))
 end
 
+local function Debug(level, msg)
+  level = tonumber(level) or 1
+  local dbLevel = tonumber(MagePortalsDB and MagePortalsDB.debugLevel) or 0
+  if dbLevel < level then return end
+  Print(("debug[%d]: %s"):format(level, tostring(msg)))
+end
+
 local function EnsureDefaults()
   if MagePortalsDB.enabled == nil then
     MagePortalsDB.enabled = true
+  end
+
+  -- debug logging (0=off, 1=basic, 2=verbose)
+  if MagePortalsDB.debugLevel == nil then
+    MagePortalsDB.debugLevel = 0
+  end
+
+  -- listen to /2 (Trade) as well as /1; off by default since we can't verify location pre-invite
+  if MagePortalsDB.listenChannel2 == nil then
+    MagePortalsDB.listenChannel2 = false
   end
 
   -- seconds to ignore repeated triggers from the same player
@@ -66,14 +83,21 @@ local function NormalizeSender(sender)
   return sender
 end
 
-local function MsgHasWTBPort(msg)
+local function MsgHasPortalRequest(msg)
   if type(msg) ~= "string" then return false end
   local s = msg:lower()
 
   -- Word-boundary matches to avoid "airport" etc.
+  -- Trigger words: WTB or LF
   local hasWTB = s:find("%f[%a]wtb%f[%A]") ~= nil
-  local hasPort = s:find("%f[%a]port%f[%A]") ~= nil
-  return hasWTB and hasPort
+  local hasLF = s:find("%f[%a]lf%f[%A]") ~= nil
+
+  -- Portal words: port/ports OR portal/portals
+  local hasPort =
+    (s:find("%f[%a]ports?%f[%A]") ~= nil) or
+    (s:find("%f[%a]portals?%f[%A]") ~= nil)
+
+  return (hasWTB or hasLF) and hasPort
 end
 
 local function GetRequestedPortalFromMsg(msg)
@@ -334,34 +358,36 @@ local function StartWatchingTradeFor(shortName)
 end
 
 local function CanAttemptInvite(sender)
-  if not MagePortalsDB.enabled then return false end
-  if type(sender) ~= "string" or sender == "" then return false end
+  if not MagePortalsDB.enabled then return false, "addon disabled" end
+  if type(sender) ~= "string" or sender == "" then return false, "missing sender" end
 
   local me = UnitName("player")
   if me and sender:find("^" .. me) then
-    return false
+    return false, "sender is player"
   end
 
   local short = NormalizeSender(sender)
 
   -- If they're already with us, skip.
   if UnitInParty(short) or UnitInRaid(short) then
-    return false
+    return false, "already in group"
   end
 
   local now = GetTime and GetTime() or 0
   local throttle = tonumber(MagePortalsDB.inviteThrottleSeconds) or 60
   local last = recentInvites[short]
   if last and now - last < throttle then
-    return false
+    local remaining = math.max(0, throttle - (now - last))
+    return false, ("throttled (%.1fs left)"):format(remaining)
   end
 
   recentInvites[short] = now
-  return true
+  return true, nil
 end
 
 local function TryInvite(sender, reason, portalRequest)
   local short = NormalizeSender(sender)
+  Debug(1, ("Inviting %s (reason=%s)"):format(short, tostring(reason)))
   InviteUnit(short)
   Print(("Invited %s (%s)"):format(short, reason))
   if portalRequest and portalRequest.spell and portalRequest.dest then
@@ -377,6 +403,9 @@ local function TryInvite(sender, reason, portalRequest)
 end
 
 local f = CreateFrame("Frame")
+
+-- forward declare so SetAddonEnabled can call it safely
+local ApplyEnabledState
 
 local function SetAddonEnabled(enabled)
   MagePortalsDB.enabled = enabled and true or false
@@ -397,7 +426,7 @@ local function SetAddonEnabled(enabled)
   end
 end
 
-local function ApplyEnabledState()
+ApplyEnabledState = function()
   f:UnregisterEvent("CHAT_MSG_YELL")
   f:UnregisterEvent("CHAT_MSG_SAY")
   f:UnregisterEvent("CHAT_MSG_WHISPER")
@@ -421,6 +450,7 @@ f:RegisterEvent("ADDON_LOADED")
 f:RegisterEvent("PLAYER_LOGIN")
 
 f:SetScript("OnEvent", function(_, event, ...)
+  Debug(2, ("Event: %s"):format(event))
   if event == "ADDON_LOADED" then
     local addonName = ...
     if addonName ~= ADDON_NAME then return end
@@ -443,24 +473,48 @@ f:SetScript("OnEvent", function(_, event, ...)
 
   if event == "CHAT_MSG_YELL" then
     local msg, sender = ...
-    if not MsgHasWTBPort(msg) then return end
-    if not CanAttemptInvite(sender) then return end
+    Debug(2, ("YELL from %s: %q"):format(tostring(sender), tostring(msg)))
+    if not MsgHasPortalRequest(msg) then
+      Debug(2, "Ignored: missing portal request keywords")
+      return
+    end
+    local ok, why = CanAttemptInvite(sender)
+    if not ok then
+      Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
+      return
+    end
     TryInvite(sender, "yell", GetRequestedPortalFromMsg(msg))
     return
   end
 
   if event == "CHAT_MSG_SAY" then
     local msg, sender = ...
-    if not MsgHasWTBPort(msg) then return end
-    if not CanAttemptInvite(sender) then return end
+    Debug(2, ("SAY from %s: %q"):format(tostring(sender), tostring(msg)))
+    if not MsgHasPortalRequest(msg) then
+      Debug(2, "Ignored: missing portal request keywords")
+      return
+    end
+    local ok, why = CanAttemptInvite(sender)
+    if not ok then
+      Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
+      return
+    end
     TryInvite(sender, "say", GetRequestedPortalFromMsg(msg))
     return
   end
 
   if event == "CHAT_MSG_WHISPER" then
     local msg, sender = ...
-    if not MsgHasWTBPort(msg) then return end
-    if not CanAttemptInvite(sender) then return end
+    Debug(2, ("WHISPER from %s: %q"):format(tostring(sender), tostring(msg)))
+    if not MsgHasPortalRequest(msg) then
+      Debug(2, "Ignored: missing portal request keywords")
+      return
+    end
+    local ok, why = CanAttemptInvite(sender)
+    if not ok then
+      Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
+      return
+    end
     TryInvite(sender, "whisper", GetRequestedPortalFromMsg(msg))
     return
   end
@@ -470,11 +524,22 @@ f:SetScript("OnEvent", function(_, event, ...)
     local msg, sender, _, channelString, _, _, _, channelNumber = ...
     channelNumber = tonumber(channelNumber)
 
-    -- Only /1 (usually General)
-    if channelNumber ~= 1 then return end
+    -- /1 General always; optionally /2 Trade (opt-in).
+    if channelNumber ~= 1 and not (channelNumber == 2 and MagePortalsDB.listenChannel2) then
+      Debug(2, ("Ignored channel %s (%s)"):format(tostring(channelNumber), tostring(channelString)))
+      return
+    end
 
-    if not MsgHasWTBPort(msg) then return end
-    if not CanAttemptInvite(sender) then return end
+    Debug(2, ("CHANNEL %s (%s) from %s: %q"):format(tostring(channelNumber), tostring(channelString), tostring(sender), tostring(msg)))
+    if not MsgHasPortalRequest(msg) then
+      Debug(2, "Ignored: missing portal request keywords")
+      return
+    end
+    local ok, why = CanAttemptInvite(sender)
+    if not ok then
+      Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
+      return
+    end
     TryInvite(sender, ("channel %s"):format(channelString or "1"), GetRequestedPortalFromMsg(msg))
     return
   end
@@ -514,6 +579,8 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     Print("/mp off       - disable addon (stops invites + trade helpers)")
     Print("/mp status    - show current status")
     Print("/mp throttle N- ignore repeat triggers from same player for N seconds (default 60)")
+    Print("/mp ch2 on|off - also listen in /2 (Trade) (default off)")
+    Print("/mp debug off|on|0|1|2 - debug logging (0=off, 1=basic, 2=verbose)")
     Print("/mp autotrade on|off - attempt to auto-open trade when they are in range")
     Print("/mp tradebutton on|off - show a clickable trade button fallback")
     Print("/mp portalbutton on|off - show a clickable portal-cast button when trade opens")
@@ -533,8 +600,10 @@ SlashCmdList["MAGEPORTALS"] = function(input)
   end
 
   if input == "status" then
-    Print(("Status: %s (throttle=%ss, autotrade=%s, tradebutton=%s, portalbutton=%s)"):format(
+    Print(("Status: %s (ch2=%s, debug=%s, throttle=%ss, autotrade=%s, tradebutton=%s, portalbutton=%s)"):format(
       MagePortalsDB.enabled and "on" or "off",
+      MagePortalsDB.listenChannel2 and "on" or "off",
+      tostring(MagePortalsDB.debugLevel or 0),
       tostring(MagePortalsDB.inviteThrottleSeconds),
       MagePortalsDB.autoTrade and "on" or "off",
       MagePortalsDB.showTradeButton and "on" or "off",
@@ -560,6 +629,35 @@ SlashCmdList["MAGEPORTALS"] = function(input)
       end
     end
     Print(("Auto-trade %s."):format(MagePortalsDB.autoTrade and "enabled" or "disabled"))
+    return
+  end
+
+  local ch2Toggle = input:match("^(ch2|channel2)%s+(on|off)$")
+  if ch2Toggle then
+    local _, onoff = input:match("^(ch2|channel2)%s+(on|off)$")
+    MagePortalsDB.listenChannel2 = onoff == "on"
+    Print(("/2 (Trade) listening %s."):format(MagePortalsDB.listenChannel2 and "enabled" or "disabled"))
+    return
+  end
+
+  local debugArg = input:match("^debug%s+(.+)$")
+  if debugArg then
+    debugArg = debugArg:gsub("^%s+", ""):gsub("%s+$", "")
+    if debugArg == "on" then
+      MagePortalsDB.debugLevel = 1
+    elseif debugArg == "off" then
+      MagePortalsDB.debugLevel = 0
+    else
+      local n = tonumber(debugArg)
+      if n == nil then
+        Print("Usage: /mp debug off|on|0|1|2")
+        return
+      end
+      if n < 0 then n = 0 end
+      if n > 2 then n = 2 end
+      MagePortalsDB.debugLevel = n
+    end
+    Print(("Debug level set to %s."):format(tostring(MagePortalsDB.debugLevel)))
     return
   end
 
