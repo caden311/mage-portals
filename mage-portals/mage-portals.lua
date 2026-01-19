@@ -287,14 +287,14 @@ LayoutMinimapButton = function()
     minimapButton._bg:ClearAllPoints()
     minimapButton._bg:SetSize(25, 25)
     -- Offset slightly to center inside the gold tracking ring
-    minimapButton._bg:SetPoint("CENTER", minimapButton, "CENTER", 1, -1)
+    minimapButton._bg:SetPoint("CENTER", minimapButton, "CENTER", -1, -1)
   end
 
   if minimapButton._icon then
     minimapButton._icon:ClearAllPoints()
     minimapButton._icon:SetSize(20, 20)
     -- Offset slightly to center inside the gold tracking ring
-    minimapButton._icon:SetPoint("CENTER", minimapButton, "CENTER", 1, -1)
+    minimapButton._icon:SetPoint("CENTER", minimapButton, "CENTER", -1, 1)
   end
 
   if minimapButton._border then
@@ -302,7 +302,7 @@ LayoutMinimapButton = function()
     local borderSize = 54
     minimapButton._border:SetSize(borderSize, borderSize)
     -- Use CENTER for the border to keep it centered on the button frame
-    minimapButton._border:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
+    minimapButton._border:SetPoint("CENTER", minimapButton, "CENTER", 12, -10)
   end
 
   if minimapButton._highlight then
