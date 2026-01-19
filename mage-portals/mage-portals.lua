@@ -103,6 +103,12 @@ local function MsgHasPortalRequest(msg)
   return (hasWTB or hasLF) and hasPort
 end
 
+local function MsgHasPortWord(msg)
+  if type(msg) ~= "string" then return false end
+  local s = msg:lower()
+  return (s:find("%f[%a]ports?%f[%A]") ~= nil) or (s:find("%f[%a]portals?%f[%A]") ~= nil)
+end
+
 local function GetRequestedPortalFromMsg(msg)
   if type(msg) ~= "string" then return nil end
   local s = msg:lower()
@@ -119,6 +125,11 @@ local function GetRequestedPortalFromMsg(msg)
   -- Silvermoon (sm/silvermoon)
   if has("%f[%a]silvermoon%f[%A]") or has("%f[%a]sm%f[%A]") then
     return { dest = "Silvermoon", spell = "Portal: Silvermoon" }
+  end
+
+  -- Stonard (stonard)
+  if has("%f[%a]stonard%f[%A]") then
+    return { dest = "Stonard", spell = "Portal: Stonard" }
   end
 
   -- Orgrimmar (org/orgrimmar)
@@ -186,7 +197,7 @@ local function WhisperInvitee(shortName, portalRequest)
   if portalRequest and portalRequest.dest then
     msg = ("Let's get you to %s."):format(portalRequest.dest)
   else
-    msg = "Where are you headed (org / tb / uc / shat / sm)?"
+    msg = "Where are you headed (org / tb / uc / shat / sm / stonard)?"
   end
 
   SendChatMessage(msg, "WHISPER", nil, shortName)
@@ -516,7 +527,10 @@ f:SetScript("OnEvent", function(_, event, ...)
   if event == "CHAT_MSG_WHISPER" then
     local msg, sender = ...
     Debug(2, ("WHISPER from %s: %q"):format(tostring(sender), tostring(msg)))
-    if not MsgHasPortalRequest(msg) then
+    -- For whispers, allow plain "port/portal" without requiring "WTB"/"LF".
+    -- People typically DM "org port?" / "stonard port?" directly.
+    local portalRequest = GetRequestedPortalFromMsg(msg)
+    if not MsgHasPortalRequest(msg) and not MsgHasPortWord(msg) then
       Debug(2, "Ignored: missing portal request keywords")
       return
     end
@@ -525,7 +539,7 @@ f:SetScript("OnEvent", function(_, event, ...)
       Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
       return
     end
-    TryInvite(sender, "whisper", GetRequestedPortalFromMsg(msg))
+    TryInvite(sender, "whisper", portalRequest)
     return
   end
 
