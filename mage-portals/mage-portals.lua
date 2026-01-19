@@ -59,6 +59,7 @@ lastInviteAttempt = { name = nil, at = nil, reason = nil }
 
 local minimapButton ---@type Button|nil
 local function UpdateMinimapButtonVisual() end -- forward declare
+local function LayoutMinimapButton() end -- forward declare
 
 local function NormalizeSender(sender)
   -- Strip realm if present (e.g. "Name-Realm" -> "Name")
@@ -246,48 +247,44 @@ local SetAddonEnabled
 local ApplyEnabledState
 
 local function EnsureMinimapButton()
-  if minimapButton or type(CreateFrame) ~= "function" then return end
+  if type(CreateFrame) ~= "function" then return end
   if not Minimap then return end
 
-  minimapButton = CreateFrame("Button", "MagePortalsMinimapButton", Minimap)
-  minimapButton:SetSize(32, 32)
-  minimapButton:SetFrameStrata("MEDIUM")
-  minimapButton:SetFrameLevel(8)
-  minimapButton:SetMovable(true)
-  minimapButton:EnableMouse(true)
-  minimapButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-  minimapButton:RegisterForDrag("LeftButton")
-  minimapButton:SetClampedToScreen(true)
+  if not minimapButton then
+    minimapButton = CreateFrame("Button", "MagePortalsMinimapButton", Minimap)
+    minimapButton:SetFrameStrata("MEDIUM")
+    minimapButton:SetFrameLevel(8)
+    minimapButton:SetMovable(true)
+    minimapButton:EnableMouse(true)
+    minimapButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    minimapButton:RegisterForDrag("LeftButton")
+    minimapButton:SetClampedToScreen(true)
 
-  -- Background fill (Blizzard minimap buttons use this to ensure proper centering/scale)
-  local bg = minimapButton:CreateTexture(nil, "BACKGROUND")
-  bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
-  bg:SetAllPoints(minimapButton)
-  minimapButton._bg = bg
+    -- Background fill (Blizzard minimap buttons use this to ensure proper centering/scale)
+    local bg = minimapButton:CreateTexture(nil, "BACKGROUND")
+    bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    minimapButton._bg = bg
 
-  -- Icon (centered)
-  local icon = minimapButton:CreateTexture(nil, "ARTWORK")
-  icon:SetSize(20, 20)
-  icon:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
-  icon:SetTexture("Interface\\ICONS\\Spell_Arcane_PortalOrgrimmar")
-  icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-  if icon.SetMaskTexture then
-    icon:SetMaskTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    -- Icon (centered)
+    local icon = minimapButton:CreateTexture(nil, "ARTWORK")
+    icon:SetTexture("Interface\\ICONS\\Spell_Arcane_PortalOrgrimmar")
+    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+    if icon.SetMaskTexture then
+      icon:SetMaskTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+    end
+    minimapButton._icon = icon
+
+    local border = minimapButton:CreateTexture(nil, "OVERLAY")
+    border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    minimapButton._border = border
+
+    local highlight = minimapButton:CreateTexture(nil, "HIGHLIGHT")
+    highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+    highlight:SetBlendMode("ADD")
+    minimapButton._highlight = highlight
   end
-  minimapButton._icon = icon
 
-  local border = minimapButton:CreateTexture(nil, "OVERLAY")
-  border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-  border:SetSize(56, 56)
-  -- Critical: this ring texture is authored to be positioned from TOPLEFT with these offsets.
-  border:SetPoint("TOPLEFT", minimapButton, "TOPLEFT", -12, 12)
-  minimapButton._border = border
-
-  local highlight = minimapButton:CreateTexture(nil, "HIGHLIGHT")
-  highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
-  highlight:SetBlendMode("ADD")
-  highlight:SetAllPoints(minimapButton)
-  minimapButton._highlight = highlight
+  LayoutMinimapButton()
 
   local function NormalizeAngle(deg)
     deg = (tonumber(deg) or 0) % 360
@@ -372,6 +369,33 @@ local function EnsureMinimapButton()
     else
       minimapButton._icon:SetDesaturated(true)
       minimapButton._icon:SetVertexColor(0.7, 0.7, 0.7)
+    end
+  end
+
+  LayoutMinimapButton = function()
+    if not minimapButton then return end
+    minimapButton:SetSize(32, 32)
+
+    if minimapButton._bg then
+      minimapButton._bg:ClearAllPoints()
+      minimapButton._bg:SetAllPoints(minimapButton)
+    end
+
+    if minimapButton._icon then
+      minimapButton._icon:ClearAllPoints()
+      minimapButton._icon:SetSize(20, 20)
+      minimapButton._icon:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
+    end
+
+    if minimapButton._border then
+      minimapButton._border:ClearAllPoints()
+      minimapButton._border:SetSize(56, 56)
+      minimapButton._border:SetPoint("TOPLEFT", minimapButton, "TOPLEFT", -12, 12)
+    end
+
+    if minimapButton._highlight then
+      minimapButton._highlight:ClearAllPoints()
+      minimapButton._highlight:SetAllPoints(minimapButton)
     end
   end
 
