@@ -260,13 +260,10 @@ local function EnsureMinimapButton()
   minimapButton:SetClampedToScreen(true)
 
   local icon = minimapButton:CreateTexture(nil, "BACKGROUND")
-  -- Anchor by corners around the button center so the icon is truly centered.
-  -- (Some clients/UIs can make CENTER anchoring appear offset.)
-  icon:ClearAllPoints()
-  icon:SetPoint("TOPLEFT", minimapButton, "CENTER", -10, 10)
-  icon:SetPoint("BOTTOMRIGHT", minimapButton, "CENTER", 10, -10)
+  -- Known-good pattern: make the icon fill the button and pad via TexCoord.
+  icon:SetAllPoints(minimapButton)
   icon:SetTexture("Interface\\ICONS\\Spell_Arcane_PortalOrgrimmar")
-  icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  icon:SetTexCoord(0.10, 0.90, 0.10, 0.90)
   if icon.SetMaskTexture then
     -- Clip the icon to a circle so it doesn't spill outside the minimap button ring.
     icon:SetMaskTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
@@ -275,9 +272,8 @@ local function EnsureMinimapButton()
 
   local border = minimapButton:CreateTexture(nil, "OVERLAY")
   border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-  border:SetSize(56, 56)
-  -- This texture is authored to be positioned relative to TOPLEFT, not centered.
-  border:SetPoint("TOPLEFT", minimapButton, "TOPLEFT", -12, 12)
+  -- Also fill the button so border + icon share the exact same center.
+  border:SetAllPoints(minimapButton)
   minimapButton._border = border
 
   local highlight = minimapButton:CreateTexture(nil, "HIGHLIGHT")
