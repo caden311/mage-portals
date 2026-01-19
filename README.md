@@ -7,8 +7,6 @@ Auto-invites players who ask to buy a mage portal by saying **“WTB”** and **
 - **/1** (Channel 1, usually General)
 - **/2** (Trade) *(optional; `/mp ch2 on`)*
 
-If they include a destination keyword (like `org`), the addon will remember it and (when trade opens) show a **one-click “Cast Portal”** button.
-
 ### Install (macOS)
 
 1. Locate your Classic Era AddOns folder (common path):
@@ -26,21 +24,19 @@ If they include a destination keyword (like `org`), the addon will remember it a
 
 ### Commands
 
-- `/mp on`: enable addon (auto-invite on; trade helpers depend on your settings)
-- `/mp off`: disable addon (stops invites + trade helpers)
+- `/mp on`: enable addon (auto-invite on)
+- `/mp off`: disable addon (stops invites)
 - `/mp status`: show status
 - `/mp throttle N`: don’t re-invite the same player for N seconds (default 60)
-- `/mp autotrade on|off`: when the invited player is in trade range, attempt to open trade automatically
-- `/mp tradebutton on|off`: show a clickable “trade” button
-- `/mp portalbutton on|off`: show a clickable “cast portal” button when trade opens
+- `/mp ch2 on|off`: also listen in /2 (Trade) (default off)
+- `/mp minimap on|off`: show/hide the minimap icon (you can also right-click the icon to hide it)
+- `/mp whisper on|off`: whisper the invitee a confirmation / destination message
+- `/mp debug off|on|0|1|2`: debug logging (0=off, 1=basic, 2=verbose)
+- `/mp testinvite Name`: manually attempt an invite (debug helper)
 
 ### Defaults
 
-By default, **only auto-invite is enabled**. Auto-trade / trade button / portal button are **off** until you turn them on.
-
-### Auto-trade notes (important)
-
-WoW may block fully automatic trade initiation from addons. This addon will **try** to open trade when the invitee is in range; if the client blocks it, you’ll see a **clickable button** you can press to target+trade them safely.
+By default, **only auto-invite is enabled**.
 
 ### Portal destination keywords
 
@@ -53,7 +49,7 @@ The addon recognizes these destinations (case-insensitive):
 
 ### Portal casting note (important)
 
-WoW generally blocks **fully automatic spell casting** from addons. When trade opens, `mage-portals` shows a **clickable button** to cast the requested portal reliably.
+WoW generally blocks **fully automatic spell casting** from addons.
 
 ### Notes
 

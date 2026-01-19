@@ -41,47 +41,24 @@ local function EnsureDefaults()
     MagePortalsDB.inviteThrottleSeconds = 60
   end
 
-  -- attempt to open trade automatically when invitee is in trade range
-  if MagePortalsDB.autoTrade == nil then
-    MagePortalsDB.autoTrade = false
+  -- minimap button settings
+  if MagePortalsDB.minimap == nil then
+    MagePortalsDB.minimap = { hide = false, angle = 225 }
   end
-
-  -- how often we poll to see if the invitee is in trade range
-  if MagePortalsDB.tradePollSeconds == nil then
-    MagePortalsDB.tradePollSeconds = 0.5
+  if MagePortalsDB.minimap.hide == nil then
+    MagePortalsDB.minimap.hide = false
   end
-
-  -- stop watching after N seconds
-  if MagePortalsDB.tradeTimeoutSeconds == nil then
-    MagePortalsDB.tradeTimeoutSeconds = 180
-  end
-
-  -- show a clickable button when the client blocks automatic trade
-  if MagePortalsDB.showTradeButton == nil then
-    MagePortalsDB.showTradeButton = false
-  end
-
-  -- show a clickable portal cast button when trade opens
-  if MagePortalsDB.showPortalButton == nil then
-    MagePortalsDB.showPortalButton = false
+  if MagePortalsDB.minimap.angle == nil then
+    MagePortalsDB.minimap.angle = 225
   end
 end
 
 local recentInvites = {} ---@type table<string, number>
-local recentTradeAttempts = {} ---@type table<string, number>
-
-local pendingTradeName ---@type string|nil
-local pendingTradeStartedAt ---@type number|nil
-local tradeTicker ---@type any
-local tradeButton ---@type Button|nil
-local portalButton ---@type Button|nil
-local tradeInRangeStreak = 0
 local lastInviteAttempt ---@type { name: string|nil, at: number|nil, reason: string|nil }
 lastInviteAttempt = { name = nil, at = nil, reason = nil }
 
--- last known request per player (set when they trigger the invite)
--- key: short player name, value: { spell: string, dest: string, requestedAt: number }
-local pendingPortalRequests = {} ---@type table<string, {spell: string, dest: string, requestedAt: number}>
+local minimapButton ---@type Button|nil
+local function UpdateMinimapButtonVisual() end -- forward declare
 
 local function NormalizeSender(sender)
   -- Strip realm if present (e.g. "Name-Realm" -> "Name")
@@ -144,38 +121,6 @@ local function GetRequestedPortalFromMsg(msg)
   return nil
 end
 
-local function FindGroupUnitByName(shortName)
-  if type(shortName) ~= "string" or shortName == "" then return nil end
-
-  -- Party
-  for i = 1, 4 do
-    local unit = "party" .. i
-    if UnitExists(unit) then
-      local n = UnitName(unit)
-      if n and NormalizeSender(n) == shortName then
-        return unit
-      end
-    end
-  end
-
-  -- Raid (just in case)
-  for i = 1, 40 do
-    local unit = "raid" .. i
-    if UnitExists(unit) then
-      local n = UnitName(unit)
-      if n and NormalizeSender(n) == shortName then
-        return unit
-      end
-    end
-  end
-
-  return nil
-end
-
-local function AnyTradeFeatureEnabled()
-  return MagePortalsDB.autoTrade or MagePortalsDB.showTradeButton or MagePortalsDB.showPortalButton
-end
-
 local function CanSendInvite()
   -- In parties/raids, only leader/assist can invite.
   if IsInRaid and IsInRaid() then
@@ -228,211 +173,6 @@ local function WhisperInvitee(shortName, portalRequest)
 
   SendChatMessage(msg, "WHISPER", nil, shortName)
   Debug(2, ("Whispered %s: %q"):format(shortName, msg))
-end
-
-local function InTradeRange(unit)
-  if not unit or not UnitExists(unit) then return false end
-  if type(CheckInteractDistance) ~= "function" then return false end
-
-  -- Prefer the actual "trade" interact distance (index 2 on Classic-era clients).
-  local tradeOk = CheckInteractDistance(unit, 2)
-  if tradeOk ~= nil then
-    return tradeOk == true
-  end
-
-  -- Fallback (should be rare): some clients may return nil for index 2.
-  return CheckInteractDistance(unit, 1) == true
-end
-
-local function EnsureTradeButton()
-  if tradeButton or type(CreateFrame) ~= "function" then return end
-  if not UIParent then return end
-
-  -- SecureActionButton requires a click from the user; it’s a safe fallback when auto-trade is blocked.
-  tradeButton = CreateFrame("Button", "MagePortalsTradeButton", UIParent, "SecureActionButtonTemplate,BackdropTemplate")
-  tradeButton:SetSize(240, 44)
-  tradeButton:SetPoint("CENTER", UIParent, "CENTER", 0, -180)
-
-  if tradeButton.SetBackdrop then
-    tradeButton:SetBackdrop({
-      bgFile = "Interface/Tooltips/UI-Tooltip-Background",
-      edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-      tile = true,
-      tileSize = 16,
-      edgeSize = 16,
-      insets = { left = 4, right = 4, top = 4, bottom = 4 },
-    })
-    tradeButton:SetBackdropColor(0, 0, 0, 0.85)
-  end
-
-  local text = tradeButton:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  text:SetPoint("CENTER")
-  tradeButton._text = text
-
-  tradeButton:SetAttribute("type", "macro")
-  tradeButton:Hide()
-end
-
-local function EnsurePortalButton()
-  if portalButton or type(CreateFrame) ~= "function" then return end
-  if not UIParent then return end
-
-  portalButton = CreateFrame("Button", "MagePortalsPortalButton", UIParent, "SecureActionButtonTemplate,BackdropTemplate")
-  portalButton:SetSize(240, 44)
-  portalButton:SetPoint("CENTER", UIParent, "CENTER", 0, -230)
-
-  if portalButton.SetBackdrop then
-    portalButton:SetBackdrop({
-      bgFile = "Interface/Tooltips/UI-Tooltip-Background",
-      edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-      tile = true,
-      tileSize = 16,
-      edgeSize = 16,
-      insets = { left = 4, right = 4, top = 4, bottom = 4 },
-    })
-    portalButton:SetBackdropColor(0, 0, 0, 0.85)
-  end
-
-  local text = portalButton:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  text:SetPoint("CENTER")
-  portalButton._text = text
-
-  portalButton:SetAttribute("type", "macro")
-  portalButton:Hide()
-end
-
-local function HideTradeButton()
-  if tradeButton then tradeButton:Hide() end
-end
-
-local function HidePortalButton()
-  if portalButton then portalButton:Hide() end
-end
-
-local function ShowTradeButtonFor(name)
-  if not MagePortalsDB.showTradeButton then return end
-  EnsureTradeButton()
-  if not tradeButton or not tradeButton._text then return end
-
-  tradeButton._text:SetText(("Click to trade: %s"):format(name))
-  tradeButton:SetAttribute("macrotext", ("/targetexact %s\n/trade"):format(name))
-  tradeButton:Show()
-end
-
-local function ShowPortalButtonFor(spellName, dest)
-  if MagePortalsDB.showPortalButton == false then return end
-  EnsurePortalButton()
-  if not portalButton or not portalButton._text then return end
-  portalButton._text:SetText(("Click to cast portal: %s"):format(dest))
-  portalButton:SetAttribute("macrotext", ("/cast %s"):format(spellName))
-  portalButton:Show()
-end
-
-local function StopWatchingTrade()
-  pendingTradeName = nil
-  pendingTradeStartedAt = nil
-  tradeInRangeStreak = 0
-  if tradeTicker and tradeTicker.Cancel then
-    tradeTicker:Cancel()
-  end
-  tradeTicker = nil
-  HideTradeButton()
-  HidePortalButton()
-end
-
-local function TryInitiateTrade(shortName, unit)
-  if not MagePortalsDB.autoTrade then
-    ShowTradeButtonFor(shortName)
-    return
-  end
-
-  local now = GetTime and GetTime() or 0
-  local last = recentTradeAttempts[shortName]
-  if last and now - last < 5 then
-    return
-  end
-  recentTradeAttempts[shortName] = now
-
-  if type(InitiateTrade) ~= "function" then
-    ShowTradeButtonFor(shortName)
-    return
-  end
-
-  -- InitiateTrade can be protected/blocked depending on client restrictions; attempt it,
-  -- then fall back to a click button if TradeFrame doesn't appear shortly after.
-  InitiateTrade(unit)
-  if C_Timer and C_Timer.After then
-    C_Timer.After(0.15, function()
-      if TradeFrame and TradeFrame.IsShown and TradeFrame:IsShown() then
-        HideTradeButton()
-        StopWatchingTrade()
-      else
-        ShowTradeButtonFor(shortName)
-      end
-    end)
-  end
-end
-
-local function StartWatchingTradeFor(shortName)
-  if not shortName or shortName == "" then return end
-
-  pendingTradeName = shortName
-  pendingTradeStartedAt = GetTime and GetTime() or 0
-  tradeInRangeStreak = 0
-
-  if tradeTicker and tradeTicker.Cancel then
-    tradeTicker:Cancel()
-  end
-
-  local poll = tonumber(MagePortalsDB.tradePollSeconds) or 0.5
-  if poll < 0.1 then poll = 0.1 end
-
-  if not (C_Timer and C_Timer.NewTicker) then
-    -- No ticker available; degrade gracefully (no autotrade).
-    return
-  end
-
-  tradeTicker = C_Timer.NewTicker(poll, function()
-    if not MagePortalsDB.enabled then
-      StopWatchingTrade()
-      return
-    end
-
-    if not AnyTradeFeatureEnabled() then
-      StopWatchingTrade()
-      return
-    end
-
-    if not pendingTradeName then
-      StopWatchingTrade()
-      return
-    end
-
-    local now = GetTime and GetTime() or 0
-    local timeout = tonumber(MagePortalsDB.tradeTimeoutSeconds) or 180
-    if pendingTradeStartedAt and timeout > 0 and now - pendingTradeStartedAt > timeout then
-      StopWatchingTrade()
-      return
-    end
-
-    local unit = FindGroupUnitByName(pendingTradeName)
-    if not unit then return end
-    if not InTradeRange(unit) then
-      tradeInRangeStreak = 0
-      HideTradeButton()
-      HidePortalButton()
-      return
-    end
-
-    -- Debounce: require them to be in trade range for 2 consecutive polls.
-    tradeInRangeStreak = tradeInRangeStreak + 1
-    if tradeInRangeStreak < 2 then
-      Debug(2, ("In trade range (streak=%d), waiting one more tick..."):format(tradeInRangeStreak))
-      return
-    end
-
-    TryInitiateTrade(pendingTradeName, unit)
-  end)
 end
 
 local function CanAttemptInvite(sender)
@@ -497,16 +237,6 @@ local function TryInvite(sender, reason, portalRequest)
   Debug(1, ("Invite call dispatched via %s -> %s"):format(tostring(api), short))
   Print(("Invite attempt sent to %s (%s)"):format(short, reason))
   WhisperInvitee(short, portalRequest)
-  if portalRequest and portalRequest.spell and portalRequest.dest then
-    pendingPortalRequests[short] = {
-      spell = portalRequest.spell,
-      dest = portalRequest.dest,
-      requestedAt = GetTime and GetTime() or 0,
-    }
-  end
-  if AnyTradeFeatureEnabled() then
-    StartWatchingTradeFor(short)
-  end
 end
 
 local f = CreateFrame("Frame")
@@ -514,23 +244,139 @@ local f = CreateFrame("Frame")
 -- forward declare so SetAddonEnabled can call it safely
 local ApplyEnabledState
 
+local function EnsureMinimapButton()
+  if minimapButton or type(CreateFrame) ~= "function" then return end
+  if not Minimap then return end
+
+  minimapButton = CreateFrame("Button", "MagePortalsMinimapButton", Minimap)
+  minimapButton:SetSize(32, 32)
+  minimapButton:SetFrameStrata("MEDIUM")
+  minimapButton:SetFrameLevel(8)
+  minimapButton:SetMovable(true)
+  minimapButton:EnableMouse(true)
+  minimapButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  minimapButton:RegisterForDrag("LeftButton")
+  minimapButton:SetClampedToScreen(true)
+
+  local icon = minimapButton:CreateTexture(nil, "BACKGROUND")
+  icon:SetSize(20, 20)
+  icon:SetPoint("CENTER", minimapButton, "CENTER", 0, 1)
+  icon:SetTexture("Interface\\ICONS\\Spell_Arcane_PortalOrgrimmar")
+  icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  minimapButton._icon = icon
+
+  local border = minimapButton:CreateTexture(nil, "OVERLAY")
+  border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+  border:SetSize(56, 56)
+  border:SetPoint("TOPLEFT", minimapButton, "TOPLEFT", -12, 12)
+  minimapButton._border = border
+
+  local highlight = minimapButton:CreateTexture(nil, "HIGHLIGHT")
+  highlight:SetTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
+  highlight:SetBlendMode("ADD")
+  highlight:SetAllPoints(minimapButton)
+  minimapButton._highlight = highlight
+
+  local function NormalizeAngle(deg)
+    deg = (tonumber(deg) or 0) % 360
+    if deg < 0 then deg = deg + 360 end
+    return deg
+  end
+
+  local function SetButtonAngle(deg)
+    if not MagePortalsDB.minimap then MagePortalsDB.minimap = {} end
+    MagePortalsDB.minimap.angle = NormalizeAngle(deg)
+    local angle = MagePortalsDB.minimap.angle
+    local rad = angle * math.pi / 180
+    local radius = 80
+    local x = math.cos(rad) * radius
+    local y = math.sin(rad) * radius
+    minimapButton:ClearAllPoints()
+    minimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
+  end
+
+  minimapButton:SetScript("OnDragStart", function(self)
+    self._dragging = true
+    self:SetScript("OnUpdate", function()
+      if not Minimap or not Minimap.GetCenter then return end
+      local mx, my = Minimap:GetCenter()
+      if not mx or not my then return end
+
+      local scale = (Minimap.GetEffectiveScale and Minimap:GetEffectiveScale()) or 1
+      local cx, cy = GetCursorPosition()
+      cx, cy = cx / scale, cy / scale
+      local dx, dy = cx - mx, cy - my
+
+      local atan2 = (math.atan2 or atan2)
+      if type(atan2) ~= "function" then
+        -- fallback: no reliable angle math; don't save position
+        return
+      end
+
+      local rad = atan2(dy, dx)
+      local deg = rad * 180 / math.pi
+      SetButtonAngle(deg)
+    end)
+  end)
+
+  minimapButton:SetScript("OnDragStop", function(self)
+    self._dragging = false
+    self:SetScript("OnUpdate", nil)
+  end)
+
+  minimapButton:SetScript("OnClick", function(_, button)
+    if button == "RightButton" then
+      MagePortalsDB.minimap.hide = true
+      minimapButton:Hide()
+      Print("Minimap icon hidden. Use: /mp minimap on")
+      return
+    end
+
+    SetAddonEnabled(not MagePortalsDB.enabled)
+    Print(MagePortalsDB.enabled and "Enabled." or "Disabled.")
+  end)
+
+  minimapButton:SetScript("OnEnter", function(self)
+    if not GameTooltip then return end
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:ClearLines()
+    GameTooltip:AddLine(ADDON_NAME)
+    GameTooltip:AddLine(("Status: %s"):format(MagePortalsDB.enabled and "ON" or "OFF"), 1, 1, 1)
+    GameTooltip:AddLine("Left-click: Toggle", 0.8, 0.8, 0.8)
+    GameTooltip:AddLine("Right-click: Hide", 0.8, 0.8, 0.8)
+    GameTooltip:AddLine("Drag: Move", 0.8, 0.8, 0.8)
+    GameTooltip:Show()
+  end)
+
+  minimapButton:SetScript("OnLeave", function()
+    if GameTooltip then GameTooltip:Hide() end
+  end)
+
+  UpdateMinimapButtonVisual = function()
+    if not minimapButton or not minimapButton._icon then return end
+    if MagePortalsDB.enabled then
+      minimapButton._icon:SetDesaturated(false)
+      minimapButton._icon:SetVertexColor(1, 1, 1)
+    else
+      minimapButton._icon:SetDesaturated(true)
+      minimapButton._icon:SetVertexColor(0.7, 0.7, 0.7)
+    end
+  end
+
+  -- initial placement + state
+  SetButtonAngle(MagePortalsDB.minimap and MagePortalsDB.minimap.angle or 225)
+  UpdateMinimapButtonVisual()
+end
+
 local function SetAddonEnabled(enabled)
   MagePortalsDB.enabled = enabled and true or false
 
   if MagePortalsDB.enabled then
     ApplyEnabledState()
-    if MagePortalsDB.showTradeButton then
-      EnsureTradeButton()
-    end
-    if MagePortalsDB.showPortalButton then
-      EnsurePortalButton()
-    end
   else
     ApplyEnabledState()
-    StopWatchingTrade()
-    HideTradeButton()
-    HidePortalButton()
   end
+  if UpdateMinimapButtonVisual then UpdateMinimapButtonVisual() end
 end
 
 ApplyEnabledState = function()
@@ -538,8 +384,6 @@ ApplyEnabledState = function()
   f:UnregisterEvent("CHAT_MSG_SAY")
   f:UnregisterEvent("CHAT_MSG_WHISPER")
   f:UnregisterEvent("CHAT_MSG_CHANNEL")
-  f:UnregisterEvent("TRADE_SHOW")
-  f:UnregisterEvent("TRADE_CLOSED")
   f:UnregisterEvent("CHAT_MSG_SYSTEM")
   f:UnregisterEvent("UI_ERROR_MESSAGE")
 
@@ -551,10 +395,6 @@ ApplyEnabledState = function()
     -- Always register these; we only print when debug is enabled.
     f:RegisterEvent("CHAT_MSG_SYSTEM")
     f:RegisterEvent("UI_ERROR_MESSAGE")
-    if AnyTradeFeatureEnabled() then
-      f:RegisterEvent("TRADE_SHOW")
-      f:RegisterEvent("TRADE_CLOSED")
-    end
   end
 end
 
@@ -573,11 +413,13 @@ f:SetScript("OnEvent", function(_, event, ...)
   if event == "PLAYER_LOGIN" then
     EnsureDefaults()
     ApplyEnabledState()
-    if MagePortalsDB.showTradeButton then
-      EnsureTradeButton()
-    end
-    if MagePortalsDB.showPortalButton then
-      EnsurePortalButton()
+    EnsureMinimapButton()
+    if minimapButton then
+      if MagePortalsDB.minimap and MagePortalsDB.minimap.hide then
+        minimapButton:Hide()
+      else
+        minimapButton:Show()
+      end
     end
     Print(("Loaded (%s). Type /mp help."):format(MagePortalsDB.enabled and "on" or "off"))
     return
@@ -659,14 +501,7 @@ f:SetScript("OnEvent", function(_, event, ...)
   if event == "UI_ERROR_MESSAGE" then
     -- Args vary slightly; generally (messageType, message)
     local _, message = ...
-
     local now = GetTime and GetTime() or 0
-
-    -- If we tried to auto-trade too early, back off and wait for them to get closer.
-    if type(message) == "string" and pendingTradeName and message:lower():find("too far") then
-      tradeInRangeStreak = 0
-      recentTradeAttempts[pendingTradeName] = now
-    end
 
     if (tonumber(MagePortalsDB.debugLevel) or 0) <= 0 then return end
     if lastInviteAttempt and lastInviteAttempt.at and (now - lastInviteAttempt.at) <= 3 then
@@ -690,28 +525,6 @@ f:SetScript("OnEvent", function(_, event, ...)
     return
   end
 
-  if event == "TRADE_SHOW" then
-    HideTradeButton()
-    -- When trade opens, show a click-to-cast portal button if we detected a destination.
-    -- (Auto-casting spells is typically blocked; this keeps it reliable.)
-    if MagePortalsDB.showPortalButton and pendingTradeName then
-      local req = pendingPortalRequests[pendingTradeName]
-      if req and req.spell and req.dest then
-        ShowPortalButtonFor(req.spell, req.dest)
-      else
-        HidePortalButton()
-      end
-    else
-      HidePortalButton()
-    end
-    return
-  end
-
-  if event == "TRADE_CLOSED" then
-    HideTradeButton()
-    StopWatchingTrade()
-    return
-  end
 end)
 
 SLASH_MAGEPORTALS1 = "/mp"
@@ -722,17 +535,15 @@ SlashCmdList["MAGEPORTALS"] = function(input)
 
   if lower == "" or lower == "help" then
     Print("Commands:")
-    Print("/mp on        - enable addon (auto-invite on; trade helpers depend on your settings)")
-    Print("/mp off       - disable addon (stops invites + trade helpers)")
+    Print("/mp on        - enable addon (auto-invite on)")
+    Print("/mp off       - disable addon (stops invites)")
     Print("/mp status    - show current status")
     Print("/mp throttle N- ignore repeat triggers from same player for N seconds (default 60)")
     Print("/mp ch2 on|off - also listen in /2 (Trade) (default off)")
+    Print("/mp minimap on|off - show/hide the minimap icon (right-click icon to hide)")
     Print("/mp debug off|on|0|1|2 - debug logging (0=off, 1=basic, 2=verbose)")
     Print("/mp whisper on|off - whisper the invitee a confirmation / destination message")
     Print("/mp testinvite Name - manually attempt an invite (debug helper)")
-    Print("/mp autotrade on|off - attempt to auto-open trade when they are in range")
-    Print("/mp tradebutton on|off - show a clickable trade button fallback")
-    Print("/mp portalbutton on|off - show a clickable portal-cast button when trade opens")
     return
   end
 
@@ -756,15 +567,12 @@ SlashCmdList["MAGEPORTALS"] = function(input)
   end
 
   if cmdLower == "status" and restLower == "" then
-    Print(("Status: %s (ch2=%s, whisper=%s, debug=%s, throttle=%ss, autotrade=%s, tradebutton=%s, portalbutton=%s)"):format(
+    Print(("Status: %s (ch2=%s, whisper=%s, debug=%s, throttle=%ss)"):format(
       MagePortalsDB.enabled and "on" or "off",
       MagePortalsDB.listenChannel2 and "on" or "off",
       MagePortalsDB.whisperOnInvite and "on" or "off",
       tostring(MagePortalsDB.debugLevel or 0),
-      tostring(MagePortalsDB.inviteThrottleSeconds),
-      MagePortalsDB.autoTrade and "on" or "off",
-      MagePortalsDB.showTradeButton and "on" or "off",
-      MagePortalsDB.showPortalButton and "on" or "off"
+      tostring(MagePortalsDB.inviteThrottleSeconds)
     ))
     return
   end
@@ -780,22 +588,6 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     return
   end
 
-  if cmdLower == "autotrade" then
-    if restLower ~= "on" and restLower ~= "off" then
-      Print("Usage: /mp autotrade on|off")
-      return
-    end
-    MagePortalsDB.autoTrade = restLower == "on"
-    if MagePortalsDB.enabled then
-      ApplyEnabledState()
-      if not AnyTradeFeatureEnabled() then
-        StopWatchingTrade()
-      end
-    end
-    Print(("Auto-trade %s."):format(MagePortalsDB.autoTrade and "enabled" or "disabled"))
-    return
-  end
-
   if cmdLower == "ch2" or cmdLower == "channel2" then
     if restLower ~= "on" and restLower ~= "off" then
       Print("Usage: /mp ch2 on|off")
@@ -803,6 +595,20 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     end
     MagePortalsDB.listenChannel2 = restLower == "on"
     Print(("/2 (Trade) listening %s."):format(MagePortalsDB.listenChannel2 and "enabled" or "disabled"))
+    return
+  end
+
+  if cmdLower == "minimap" then
+    if restLower ~= "on" and restLower ~= "off" then
+      Print("Usage: /mp minimap on|off")
+      return
+    end
+    MagePortalsDB.minimap.hide = restLower == "off"
+    EnsureMinimapButton()
+    if minimapButton then
+      if MagePortalsDB.minimap.hide then minimapButton:Hide() else minimapButton:Show() end
+    end
+    Print(("Minimap icon %s."):format(MagePortalsDB.minimap.hide and "hidden" or "shown"))
     return
   end
 
@@ -846,62 +652,6 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     end
     -- Debug helper: attempt invite without keyword matching.
     TryInvite(restOrig, "manual", nil)
-    return
-  end
-
-  if cmdLower == "tradebutton" then
-    if restLower == "" then
-      Print(("Trade button is currently %s. Use: /mp tradebutton on|off"):format(MagePortalsDB.showTradeButton and "on" or "off"))
-      return
-    end
-    if restLower ~= "on" and restLower ~= "off" then
-      Print("Usage: /mp tradebutton on|off")
-      return
-    end
-    MagePortalsDB.showTradeButton = restLower == "on"
-    if not MagePortalsDB.showTradeButton then
-      HideTradeButton()
-      if MagePortalsDB.enabled then
-        ApplyEnabledState()
-        if not AnyTradeFeatureEnabled() then
-          StopWatchingTrade()
-        end
-      end
-    else
-      EnsureTradeButton()
-      if MagePortalsDB.enabled then
-        ApplyEnabledState()
-      end
-    end
-    Print(("Trade button %s."):format(MagePortalsDB.showTradeButton and "enabled" or "disabled"))
-    return
-  end
-
-  if cmdLower == "portalbutton" then
-    if restLower == "" then
-      Print(("Portal button is currently %s. Use: /mp portalbutton on|off"):format(MagePortalsDB.showPortalButton and "on" or "off"))
-      return
-    end
-    if restLower ~= "on" and restLower ~= "off" then
-      Print("Usage: /mp portalbutton on|off")
-      return
-    end
-    MagePortalsDB.showPortalButton = restLower == "on"
-    if not MagePortalsDB.showPortalButton then
-      HidePortalButton()
-      if MagePortalsDB.enabled then
-        ApplyEnabledState()
-        if not AnyTradeFeatureEnabled() then
-          StopWatchingTrade()
-        end
-      end
-    else
-      EnsurePortalButton()
-      if MagePortalsDB.enabled then
-        ApplyEnabledState()
-      end
-    end
-    Print(("Portal button %s."):format(MagePortalsDB.showPortalButton and "enabled" or "disabled"))
     return
   end
 
