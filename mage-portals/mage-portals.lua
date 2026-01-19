@@ -280,32 +280,36 @@ LayoutMinimapButton = function()
   local x = math.cos(rad) * radius
   local y = math.sin(rad) * radius
   minimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
-  local buttonSize = 28
+  local buttonSize = 31
   minimapButton:SetSize(buttonSize, buttonSize)
 
   if minimapButton._bg then
     minimapButton._bg:ClearAllPoints()
-    minimapButton._bg:SetAllPoints(minimapButton)
+    minimapButton._bg:SetSize(25, 25)
+    -- Offset slightly to center inside the gold tracking ring
+    minimapButton._bg:SetPoint("CENTER", minimapButton, "CENTER", 1, -1)
   end
 
   if minimapButton._icon then
     minimapButton._icon:ClearAllPoints()
     minimapButton._icon:SetSize(20, 20)
-    minimapButton._icon:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
+    -- Offset slightly to center inside the gold tracking ring
+    minimapButton._icon:SetPoint("CENTER", minimapButton, "CENTER", 1, -1)
   end
 
   if minimapButton._border then
     minimapButton._border:ClearAllPoints()
-    local borderSize = 56
+    local borderSize = 54
     minimapButton._border:SetSize(borderSize, borderSize)
-    -- Anchor by CENTER to avoid texture-origin quirks (prevents the "icon outside the ring"
-    -- / "top-left corner in the middle" look on some UI scales).
+    -- Use CENTER for the border to keep it centered on the button frame
     minimapButton._border:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
   end
 
   if minimapButton._highlight then
     minimapButton._highlight:ClearAllPoints()
-    minimapButton._highlight:SetAllPoints(minimapButton)
+    -- Offset highlight to match icon/bg
+    minimapButton._highlight:SetSize(31, 31)
+    minimapButton._highlight:SetPoint("CENTER", minimapButton, "CENTER", 1, -1)
   end
 end
 
