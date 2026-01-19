@@ -260,9 +260,11 @@ local function EnsureMinimapButton()
   minimapButton:SetClampedToScreen(true)
 
   local icon = minimapButton:CreateTexture(nil, "BACKGROUND")
-  icon:SetSize(20, 20)
-  -- Slight nudge keeps the icon visually centered inside the tracking border ring.
-  icon:SetPoint("CENTER", minimapButton, "CENTER", -1, 1)
+  -- Anchor by corners around the button center so the icon is truly centered.
+  -- (Some clients/UIs can make CENTER anchoring appear offset.)
+  icon:ClearAllPoints()
+  icon:SetPoint("TOPLEFT", minimapButton, "CENTER", -10, 10)
+  icon:SetPoint("BOTTOMRIGHT", minimapButton, "CENTER", 10, -10)
   icon:SetTexture("Interface\\ICONS\\Spell_Arcane_PortalOrgrimmar")
   icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
   if icon.SetMaskTexture then
