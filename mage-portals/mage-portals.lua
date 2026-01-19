@@ -261,7 +261,8 @@ local function EnsureMinimapButton()
 
   local icon = minimapButton:CreateTexture(nil, "BACKGROUND")
   icon:SetSize(20, 20)
-  icon:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
+  -- Slight nudge keeps the icon visually centered inside the tracking border ring.
+  icon:SetPoint("CENTER", minimapButton, "CENTER", -1, 1)
   icon:SetTexture("Interface\\ICONS\\Spell_Arcane_PortalOrgrimmar")
   icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
   if icon.SetMaskTexture then
@@ -273,7 +274,8 @@ local function EnsureMinimapButton()
   local border = minimapButton:CreateTexture(nil, "OVERLAY")
   border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
   border:SetSize(56, 56)
-  border:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
+  -- This texture is authored to be positioned relative to TOPLEFT, not centered.
+  border:SetPoint("TOPLEFT", minimapButton, "TOPLEFT", -12, 12)
   minimapButton._border = border
 
   local highlight = minimapButton:CreateTexture(nil, "HIGHLIGHT")
