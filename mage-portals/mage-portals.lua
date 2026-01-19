@@ -43,7 +43,7 @@ local function EnsureDefaults()
 
   -- minimap button settings
   if MagePortalsDB.minimap == nil then
-    MagePortalsDB.minimap = { hide = false, angle = 225, version = 2 }
+    MagePortalsDB.minimap = { hide = false, angle = 225, x = -70, y = 70, version = 3 }
   end
   if MagePortalsDB.minimap.hide == nil then
     MagePortalsDB.minimap.hide = false
@@ -51,11 +51,23 @@ local function EnsureDefaults()
   if MagePortalsDB.minimap.angle == nil then
     MagePortalsDB.minimap.angle = 225
   end
+  if MagePortalsDB.minimap.x == nil then
+    MagePortalsDB.minimap.x = -70
+  end
+  if MagePortalsDB.minimap.y == nil then
+    MagePortalsDB.minimap.y = 70
+  end
   if MagePortalsDB.minimap.version == nil then
     -- Migration: older versions could accidentally save a hidden icon while layout was broken.
     -- Make sure it shows once after upgrade; users can still hide it again intentionally.
     MagePortalsDB.minimap.hide = false
-    MagePortalsDB.minimap.version = 2
+    MagePortalsDB.minimap.version = 3
+  elseif MagePortalsDB.minimap.version < 3 then
+    -- v3 migration: switch from angle-based placement to simple x/y offsets.
+    MagePortalsDB.minimap.hide = false
+    MagePortalsDB.minimap.x = MagePortalsDB.minimap.x or -70
+    MagePortalsDB.minimap.y = MagePortalsDB.minimap.y or 70
+    MagePortalsDB.minimap.version = 3
   end
 end
 
@@ -256,10 +268,12 @@ LayoutMinimapButton = function()
   if not minimapButton then return end
   if not Minimap then return end
 
-  -- "No positioning" baseline: anchor it in a simple default spot and don't do orbit math.
+  -- Simple positioning: anchor at Minimap center using saved offsets.
   minimapButton:ClearAllPoints()
-  minimapButton:SetPoint("TOPLEFT", Minimap, "TOPLEFT", 0, 0)
-  minimapButton:SetSize(32, 32)
+  local x = (MagePortalsDB.minimap and tonumber(MagePortalsDB.minimap.x)) or -70
+  local y = (MagePortalsDB.minimap and tonumber(MagePortalsDB.minimap.y)) or 70
+  minimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
+  minimapButton:SetSize(28, 28)
 
   if minimapButton._bg then
     minimapButton._bg:ClearAllPoints()
@@ -293,8 +307,10 @@ local function EnsureMinimapButton()
     minimapButton = CreateFrame("Button", "MagePortalsMinimapButton", Minimap)
     minimapButton:SetFrameStrata("MEDIUM")
     minimapButton:SetFrameLevel(8)
+    minimapButton:SetMovable(true)
     minimapButton:EnableMouse(true)
     minimapButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    minimapButton:RegisterForDrag("LeftButton")
     minimapButton:SetClampedToScreen(true)
 
     -- Background fill (Blizzard minimap buttons use this to ensure proper centering/scale)
@@ -321,6 +337,23 @@ local function EnsureMinimapButton()
     minimapButton._highlight = highlight
   end
 
+  minimapButton:SetScript("OnDragStart", function(self)
+    if self.StartMoving then self:StartMoving() end
+  end)
+
+  minimapButton:SetScript("OnDragStop", function(self)
+    if self.StopMovingOrSizing then self:StopMovingOrSizing() end
+    if not (Minimap and Minimap.GetCenter and self.GetCenter) then return end
+    local mx, my = Minimap:GetCenter()
+    local bx, by = self:GetCenter()
+    if not (mx and my and bx and by) then return end
+    if not MagePortalsDB.minimap then MagePortalsDB.minimap = {} end
+    MagePortalsDB.minimap.x = bx - mx
+    MagePortalsDB.minimap.y = by - my
+    -- Snap to the stored position so future layouts match exactly.
+    LayoutMinimapButton()
+  end)
+
   minimapButton:SetScript("OnClick", function(_, button)
     if button == "RightButton" then
       MagePortalsDB.minimap.hide = true
@@ -341,6 +374,7 @@ local function EnsureMinimapButton()
     GameTooltip:AddLine(("Status: %s"):format(MagePortalsDB.enabled and "ON" or "OFF"), 1, 1, 1)
     GameTooltip:AddLine("Left-click: Toggle", 0.8, 0.8, 0.8)
     GameTooltip:AddLine("Right-click: Hide", 0.8, 0.8, 0.8)
+    GameTooltip:AddLine("Drag: Move", 0.8, 0.8, 0.8)
     GameTooltip:Show()
   end)
 
