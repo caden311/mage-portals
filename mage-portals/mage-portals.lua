@@ -43,7 +43,7 @@ local function EnsureDefaults()
 
   -- minimap button settings
   if MagePortalsDB.minimap == nil then
-    MagePortalsDB.minimap = { hide = false, angle = 225, x = -70, y = 70, version = 3 }
+    MagePortalsDB.minimap = { hide = false, angle = 225, x = -70, y = 70, version = 4 }
   end
   if MagePortalsDB.minimap.hide == nil then
     MagePortalsDB.minimap.hide = false
@@ -61,13 +61,12 @@ local function EnsureDefaults()
     -- Migration: older versions could accidentally save a hidden icon while layout was broken.
     -- Make sure it shows once after upgrade; users can still hide it again intentionally.
     MagePortalsDB.minimap.hide = false
-    MagePortalsDB.minimap.version = 3
-  elseif MagePortalsDB.minimap.version < 3 then
-    -- v3 migration: switch from angle-based placement to simple x/y offsets.
+    MagePortalsDB.minimap.version = 4
+  elseif MagePortalsDB.minimap.version < 4 then
+    -- v4 migration: keep the icon shown after upgrades and ensure angle exists.
     MagePortalsDB.minimap.hide = false
-    MagePortalsDB.minimap.x = MagePortalsDB.minimap.x or -70
-    MagePortalsDB.minimap.y = MagePortalsDB.minimap.y or 70
-    MagePortalsDB.minimap.version = 3
+    MagePortalsDB.minimap.angle = MagePortalsDB.minimap.angle or 225
+    MagePortalsDB.minimap.version = 4
   end
 end
 
@@ -268,12 +267,21 @@ LayoutMinimapButton = function()
   if not minimapButton then return end
   if not Minimap then return end
 
-  -- Simple positioning: anchor at Minimap center using saved offsets.
+  -- "Glued to minimap": place the button on a ring around the minimap using a saved angle.
   minimapButton:ClearAllPoints()
-  local x = (MagePortalsDB.minimap and tonumber(MagePortalsDB.minimap.x)) or -70
-  local y = (MagePortalsDB.minimap and tonumber(MagePortalsDB.minimap.y)) or 70
+  local angle = (MagePortalsDB.minimap and tonumber(MagePortalsDB.minimap.angle)) or 225
+  angle = angle % 360
+  local rad = angle * math.pi / 180
+  local mmw = (Minimap.GetWidth and Minimap:GetWidth()) or 140
+  local mmh = (Minimap.GetHeight and Minimap:GetHeight()) or 140
+  local base = math.min(mmw, mmh) / 2
+  -- Slightly outside the minimap edge so it looks like other addon buttons.
+  local radius = base + 10
+  local x = math.cos(rad) * radius
+  local y = math.sin(rad) * radius
   minimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
-  minimapButton:SetSize(28, 28)
+  local buttonSize = 28
+  minimapButton:SetSize(buttonSize, buttonSize)
 
   if minimapButton._bg then
     minimapButton._bg:ClearAllPoints()
@@ -288,9 +296,12 @@ LayoutMinimapButton = function()
 
   if minimapButton._border then
     minimapButton._border:ClearAllPoints()
-    minimapButton._border:SetSize(56, 56)
-    -- Authored to be positioned relative to TOPLEFT.
-    minimapButton._border:SetPoint("TOPLEFT", minimapButton, "TOPLEFT", -12, 12)
+    local borderSize = 56
+    minimapButton._border:SetSize(borderSize, borderSize)
+    -- Critical: this ring texture expects to be placed from TOPLEFT with padding equal to
+    -- half the size difference between border and button.
+    local pad = (borderSize - buttonSize) / 2
+    minimapButton._border:SetPoint("TOPLEFT", minimapButton, "TOPLEFT", -pad, pad)
   end
 
   if minimapButton._highlight then
@@ -338,19 +349,31 @@ local function EnsureMinimapButton()
   end
 
   minimapButton:SetScript("OnDragStart", function(self)
-    if self.StartMoving then self:StartMoving() end
+    self._dragging = true
+    self:SetScript("OnUpdate", function()
+      if not (Minimap and Minimap.GetCenter) then return end
+      local mx, my = Minimap:GetCenter()
+      if not mx or not my then return end
+
+      local scale = (Minimap.GetEffectiveScale and Minimap:GetEffectiveScale()) or 1
+      local cx, cy = GetCursorPosition()
+      cx, cy = cx / scale, cy / scale
+      local dx, dy = cx - mx, cy - my
+
+      local atan2 = (math.atan2 or atan2)
+      if type(atan2) ~= "function" then return end
+
+      local rad = atan2(dy, dx)
+      local deg = (rad * 180 / math.pi) % 360
+      if not MagePortalsDB.minimap then MagePortalsDB.minimap = {} end
+      MagePortalsDB.minimap.angle = deg
+      LayoutMinimapButton()
+    end)
   end)
 
   minimapButton:SetScript("OnDragStop", function(self)
-    if self.StopMovingOrSizing then self:StopMovingOrSizing() end
-    if not (Minimap and Minimap.GetCenter and self.GetCenter) then return end
-    local mx, my = Minimap:GetCenter()
-    local bx, by = self:GetCenter()
-    if not (mx and my and bx and by) then return end
-    if not MagePortalsDB.minimap then MagePortalsDB.minimap = {} end
-    MagePortalsDB.minimap.x = bx - mx
-    MagePortalsDB.minimap.y = by - my
-    -- Snap to the stored position so future layouts match exactly.
+    self._dragging = false
+    self:SetScript("OnUpdate", nil)
     LayoutMinimapButton()
   end)
 
