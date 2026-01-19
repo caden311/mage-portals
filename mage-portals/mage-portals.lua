@@ -260,10 +260,11 @@ local function EnsureMinimapButton()
   minimapButton:SetClampedToScreen(true)
 
   local icon = minimapButton:CreateTexture(nil, "BACKGROUND")
-  -- Known-good pattern: make the icon fill the button and pad via TexCoord.
-  icon:SetAllPoints(minimapButton)
+  -- Standard minimap button proportions: smaller icon centered inside the ring.
+  icon:SetSize(18, 18)
+  icon:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
   icon:SetTexture("Interface\\ICONS\\Spell_Arcane_PortalOrgrimmar")
-  icon:SetTexCoord(0.10, 0.90, 0.10, 0.90)
+  icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
   if icon.SetMaskTexture then
     -- Clip the icon to a circle so it doesn't spill outside the minimap button ring.
     icon:SetMaskTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
@@ -272,8 +273,9 @@ local function EnsureMinimapButton()
 
   local border = minimapButton:CreateTexture(nil, "OVERLAY")
   border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-  -- Also fill the button so border + icon share the exact same center.
-  border:SetAllPoints(minimapButton)
+  -- This texture is authored larger than the button; center it on the button.
+  border:SetSize(56, 56)
+  border:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
   minimapButton._border = border
 
   local highlight = minimapButton:CreateTexture(nil, "HIGHLIGHT")
