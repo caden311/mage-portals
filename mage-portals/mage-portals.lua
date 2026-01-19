@@ -242,6 +242,7 @@ end
 local f = CreateFrame("Frame")
 
 -- forward declare so SetAddonEnabled can call it safely
+local SetAddonEnabled
 local ApplyEnabledState
 
 local function EnsureMinimapButton()
@@ -260,15 +261,19 @@ local function EnsureMinimapButton()
 
   local icon = minimapButton:CreateTexture(nil, "BACKGROUND")
   icon:SetSize(20, 20)
-  icon:SetPoint("CENTER", minimapButton, "CENTER", 0, 1)
+  icon:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
   icon:SetTexture("Interface\\ICONS\\Spell_Arcane_PortalOrgrimmar")
   icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+  if icon.SetMaskTexture then
+    -- Clip the icon to a circle so it doesn't spill outside the minimap button ring.
+    icon:SetMaskTexture("Interface\\CharacterFrame\\TempPortraitAlphaMask")
+  end
   minimapButton._icon = icon
 
   local border = minimapButton:CreateTexture(nil, "OVERLAY")
   border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
   border:SetSize(56, 56)
-  border:SetPoint("TOPLEFT", minimapButton, "TOPLEFT", -12, 12)
+  border:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
   minimapButton._border = border
 
   local highlight = minimapButton:CreateTexture(nil, "HIGHLIGHT")
@@ -368,7 +373,7 @@ local function EnsureMinimapButton()
   UpdateMinimapButtonVisual()
 end
 
-local function SetAddonEnabled(enabled)
+SetAddonEnabled = function(enabled)
   MagePortalsDB.enabled = enabled and true or false
 
   if MagePortalsDB.enabled then
