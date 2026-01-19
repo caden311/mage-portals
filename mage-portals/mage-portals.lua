@@ -291,7 +291,7 @@ LayoutMinimapButton = function()
   if minimapButton._icon then
     minimapButton._icon:ClearAllPoints()
     minimapButton._icon:SetSize(20, 20)
-    minimapButton._icon:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
+    minimapButton._icon:SetPoint("CENTER", minimapButton, "CENTER", -14, -14)
   end
 
   if minimapButton._border then
