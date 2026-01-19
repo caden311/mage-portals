@@ -279,7 +279,7 @@ LayoutMinimapButton = function()
   local radius = base + 10
   local x = math.cos(rad) * radius
   local y = math.sin(rad) * radius
-  minimapButton:SetPoint("CENTER", Minimap, "CENTER", x - mmw/2, y - mmh/2)
+  minimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
   local buttonSize = 28
   minimapButton:SetSize(buttonSize, buttonSize)
 
@@ -298,10 +298,9 @@ LayoutMinimapButton = function()
     minimapButton._border:ClearAllPoints()
     local borderSize = 56
     minimapButton._border:SetSize(borderSize, borderSize)
-    -- Critical: this ring texture expects to be placed from TOPLEFT with padding equal to
-    -- half the size difference between border and button.
-    local pad = (borderSize - buttonSize) / 2
-    minimapButton._border:SetPoint("TOPLEFT", minimapButton, "TOPLEFT", -pad, pad)
+    -- Anchor by CENTER to avoid texture-origin quirks (prevents the "icon outside the ring"
+    -- / "top-left corner in the middle" look on some UI scales).
+    minimapButton._border:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
   end
 
   if minimapButton._highlight then
