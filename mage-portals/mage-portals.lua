@@ -279,7 +279,7 @@ LayoutMinimapButton = function()
   local radius = base + 10
   local x = math.cos(rad) * radius
   local y = math.sin(rad) * radius
-  minimapButton:SetPoint("CENTER", Minimap, "CENTER", x, y)
+  minimapButton:SetPoint("CENTER", Minimap, "CENTER", x - mmw/2, y - mmh/2)
   local buttonSize = 28
   minimapButton:SetSize(buttonSize, buttonSize)
 
@@ -291,7 +291,7 @@ LayoutMinimapButton = function()
   if minimapButton._icon then
     minimapButton._icon:ClearAllPoints()
     minimapButton._icon:SetSize(20, 20)
-    minimapButton._icon:SetPoint("CENTER", minimapButton, "CENTER", -14, -14)
+    minimapButton._icon:SetPoint("CENTER", minimapButton, "CENTER", 0, 0)
   end
 
   if minimapButton._border then
