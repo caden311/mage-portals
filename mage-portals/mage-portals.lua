@@ -103,6 +103,34 @@ local function MsgHasPortalRequest(msg)
   return (hasWTB or hasLF) and hasPort
 end
 
+-- When listening in /2 (Trade), be stricter to reduce false invites.
+-- Only invite if the person indicates they're in Orgrimmar and want a port out:
+-- examples: "WTB port from org", "WTB ports org to UC"
+local function MsgHasPortalRequest_Channel2(msg)
+  if type(msg) ~= "string" then return false end
+  local s = msg:lower()
+
+  -- Require WTB (not LF) in /2.
+  local hasWTB = s:find("%f[%a]wtb%f[%A]") ~= nil
+  if not hasWTB then return false end
+
+  -- Require the port/portal word.
+  local hasPort =
+    (s:find("%f[%a]ports?%f[%A]") ~= nil) or
+    (s:find("%f[%a]portals?%f[%A]") ~= nil)
+  if not hasPort then return false end
+
+  -- Require an Orgrimmar direction hint: "from org" OR "org to"
+  local fromOrg =
+    (s:find("from%s+%f[%a]org%f[%A]") ~= nil) or
+    (s:find("from%s+%f[%a]orgrimmar%f[%A]") ~= nil)
+  local orgTo =
+    (s:find("%f[%a]org%f[%A]%s*to%f[%A]") ~= nil) or
+    (s:find("%f[%a]orgrimmar%f[%A]%s*to%f[%A]") ~= nil)
+
+  return fromOrg or orgTo
+end
+
 local function MsgHasPortWord(msg)
   if type(msg) ~= "string" then return false end
   local s = msg:lower()
@@ -555,8 +583,14 @@ f:SetScript("OnEvent", function(_, event, ...)
     end
 
     Debug(2, ("CHANNEL %s (%s) from %s: %q"):format(tostring(channelNumber), tostring(channelString), tostring(sender), tostring(msg)))
-    if not MsgHasPortalRequest(msg) then
-      Debug(2, "Ignored: missing portal request keywords")
+    local isMatch
+    if channelNumber == 2 then
+      isMatch = MsgHasPortalRequest_Channel2(msg)
+    else
+      isMatch = MsgHasPortalRequest(msg)
+    end
+    if not isMatch then
+      Debug(2, channelNumber == 2 and "Ignored: /2 requires 'WTB' + 'port' + ('from org' or 'org to')" or "Ignored: missing portal request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
