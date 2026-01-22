@@ -104,8 +104,10 @@ local function MsgHasPortalRequest(msg)
 end
 
 -- When listening in /2 (Trade), be stricter to reduce false invites.
--- Only invite if the person indicates they're in Orgrimmar and want a port out:
--- examples: "WTB port from org", "WTB ports org to UC"
+-- Only invite if:
+-- - they ask for a port (WTB/LF + port/portal), AND
+-- - they did NOT specify a "from <city>", OR they specified "from org".
+-- If they ever specify a from-city and it's not Orgrimmar, ignore it (e.g. "from tb to uc").
 local function MsgHasPortalRequest_Channel2(msg)
   if type(msg) ~= "string" then return false end
   local s = msg:lower()
@@ -121,15 +123,42 @@ local function MsgHasPortalRequest_Channel2(msg)
     (s:find("%f[%a]portals?%f[%A]") ~= nil)
   if not hasPort then return false end
 
-  -- Require an Orgrimmar direction hint: "from org" OR "org to"
-  local fromOrg =
-    (s:find("from%s+%f[%a]org%f[%A]") ~= nil) or
-    (s:find("from%s+%f[%a]orgrimmar%f[%A]") ~= nil)
-  local orgTo =
-    (s:find("%f[%a]org%f[%A]%s*to%f[%A]") ~= nil) or
-    (s:find("%f[%a]orgrimmar%f[%A]%s*to%f[%A]") ~= nil)
+  -- If they specify "from <city>", only allow if it's Orgrimmar.
+  local function fromHas(pat)
+    return s:find("from%s+" .. pat) ~= nil
+  end
 
-  return fromOrg or orgTo
+  -- If they specify "<city> to <city>" (without the word "from"), treat the first city as a source city.
+  -- Example we want to reject: "wtb port tb to uc"
+  local function srcBeforeToHas(pat)
+    return s:find(pat .. "%s+%f[%a]to%f[%A]") ~= nil
+  end
+
+  local fromOrg = fromHas("%f[%a]org%f[%A]") or fromHas("%f[%a]orgrimmar%f[%A]")
+  local fromOtherCity =
+    fromHas("%f[%a]uc%f[%A]") or fromHas("%f[%a]undercity%f[%A]") or
+    fromHas("%f[%a]tb%f[%A]") or fromHas("%f[%a]thunderbluff%f[%A]") or fromHas("thunder%s+bluff") or
+    fromHas("%f[%a]shat%f[%A]") or fromHas("%f[%a]shatt%f[%A]") or fromHas("%f[%a]shattrath%f[%A]") or
+    fromHas("%f[%a]sm%f[%A]") or fromHas("%f[%a]silvermoon%f[%A]") or
+    fromHas("%f[%a]stonard%f[%A]")
+
+  if fromOtherCity and not fromOrg then
+    return false
+  end
+
+  -- Also reject implicit sources like "tb to uc" (any non-org city immediately before the word "to").
+  local srcOtherCityTo =
+    srcBeforeToHas("%f[%a]uc%f[%A]") or srcBeforeToHas("%f[%a]undercity%f[%A]") or
+    srcBeforeToHas("%f[%a]tb%f[%A]") or srcBeforeToHas("%f[%a]thunderbluff%f[%A]") or srcBeforeToHas("thunder%s+bluff") or
+    srcBeforeToHas("%f[%a]shat%f[%A]") or srcBeforeToHas("%f[%a]shatt%f[%A]") or srcBeforeToHas("%f[%a]shattrath%f[%A]") or
+    srcBeforeToHas("%f[%a]sm%f[%A]") or srcBeforeToHas("%f[%a]silvermoon%f[%A]") or
+    srcBeforeToHas("%f[%a]stonard%f[%A]")
+
+  if srcOtherCityTo then
+    return false
+  end
+
+  return true
 end
 
 local function MsgHasPortWord(msg)
@@ -626,7 +655,7 @@ f:SetScript("OnEvent", function(_, event, ...)
       isMatch = MsgHasPortalRequest(msg)
     end
     if not isMatch then
-      Debug(2, channelNumber == 2 and "Ignored: /2 requires 'WTB/LF' + 'port' + ('from org' or 'org to')" or "Ignored: missing portal request keywords")
+      Debug(2, channelNumber == 2 and "Ignored: /2 requires 'WTB/LF' + 'port' and rejects explicit 'from <city>' unless it's 'from org'" or "Ignored: missing portal request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
