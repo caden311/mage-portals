@@ -123,6 +123,12 @@ local function MsgHasPortalRequest_Channel2(msg)
     (s:find("%f[%a]portals?%f[%A]") ~= nil)
   if not hasPort then return false end
 
+  -- Don't invite people going *to* Orgrimmar in /2.
+  local toOrg =
+    (s:find("%f[%a]to%f[%A]%s+%f[%a]org%f[%A]") ~= nil) or
+    (s:find("%f[%a]to%f[%A]%s+%f[%a]orgrimmar%f[%A]") ~= nil)
+  if toOrg then return false end
+
   -- If they specify "from <city>", only allow if it's Orgrimmar.
   local function fromHas(pat)
     return s:find("from%s+" .. pat) ~= nil
