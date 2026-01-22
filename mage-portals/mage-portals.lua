@@ -110,9 +110,10 @@ local function MsgHasPortalRequest_Channel2(msg)
   if type(msg) ~= "string" then return false end
   local s = msg:lower()
 
-  -- Require WTB (not LF) in /2.
+  -- Require WTB or LF in /2.
   local hasWTB = s:find("%f[%a]wtb%f[%A]") ~= nil
-  if not hasWTB then return false end
+  local hasLF = s:find("%f[%a]lf%f[%A]") ~= nil
+  if not (hasWTB or hasLF) then return false end
 
   -- Require the port/portal word.
   local hasPort =
@@ -590,7 +591,7 @@ f:SetScript("OnEvent", function(_, event, ...)
       isMatch = MsgHasPortalRequest(msg)
     end
     if not isMatch then
-      Debug(2, channelNumber == 2 and "Ignored: /2 requires 'WTB' + 'port' + ('from org' or 'org to')" or "Ignored: missing portal request keywords")
+      Debug(2, channelNumber == 2 and "Ignored: /2 requires 'WTB/LF' + 'port' + ('from org' or 'org to')" or "Ignored: missing portal request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
