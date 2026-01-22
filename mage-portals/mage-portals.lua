@@ -146,6 +146,41 @@ local function GetRequestedPortalFromMsg(msg)
     return s:find(pat) ~= nil
   end
 
+  -- Prefer explicit "to <city>" destination if present (e.g. "org to uc", "from org to tb").
+  local function toHas(pat)
+    return s:find("to%s+" .. pat) ~= nil
+  end
+
+  -- Shattrath (shat/shatt/shattrath)
+  if toHas("%f[%a]shattrath%f[%A]") or toHas("%f[%a]shatt%f[%A]") or toHas("%f[%a]shat%f[%A]") then
+    return { dest = "Shattrath", spell = "Portal: Shattrath" }
+  end
+
+  -- Silvermoon (sm/silvermoon)
+  if toHas("%f[%a]silvermoon%f[%A]") or toHas("%f[%a]sm%f[%A]") then
+    return { dest = "Silvermoon", spell = "Portal: Silvermoon" }
+  end
+
+  -- Stonard (stonard)
+  if toHas("%f[%a]stonard%f[%A]") then
+    return { dest = "Stonard", spell = "Portal: Stonard" }
+  end
+
+  -- Orgrimmar (org/orgrimmar)
+  if toHas("%f[%a]orgrimmar%f[%A]") or toHas("%f[%a]org%f[%A]") then
+    return { dest = "Orgrimmar", spell = "Portal: Orgrimmar" }
+  end
+
+  -- Thunder Bluff (tb/thunderbluff/thunder bluff)
+  if toHas("%f[%a]thunderbluff%f[%A]") or toHas("%f[%a]tb%f[%A]") or s:find("to%s+thunder%s+bluff") then
+    return { dest = "Thunder Bluff", spell = "Portal: Thunder Bluff" }
+  end
+
+  -- Undercity (uc/undercity)
+  if toHas("%f[%a]undercity%f[%A]") or toHas("%f[%a]uc%f[%A]") then
+    return { dest = "Undercity", spell = "Portal: Undercity" }
+  end
+
   -- Shattrath (shat/shatt/shattrath)
   if has("%f[%a]shattrath%f[%A]") or has("%f[%a]shatt%f[%A]") or has("%f[%a]shat%f[%A]") then
     return { dest = "Shattrath", spell = "Portal: Shattrath" }
