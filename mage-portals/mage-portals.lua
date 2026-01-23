@@ -21,11 +21,6 @@ local function EnsureDefaults()
     MagePortalsDB.enabled = true
   end
 
-  -- auto-invite people looking for specific enchanting services (opt-in)
-  if MagePortalsDB.enchantEnabled == nil then
-    MagePortalsDB.enchantEnabled = false
-  end
-
   -- debug logging (0=off, 1=basic, 2=verbose)
   if MagePortalsDB.debugLevel == nil then
     MagePortalsDB.debugLevel = 0
@@ -172,28 +167,6 @@ local function MsgHasPortalRequest_Channel2(msg)
   return true
 end
 
--- Enchant scenario: invite anyone asking to buy Fiery Weapon (common misspelling: "feiry"),
--- while explicitly excluding sellers and other enchanters advertising.
-local function MsgHasEnchantRequest(msg)
-  if type(msg) ~= "string" then return false end
-  local s = msg:lower()
-
-  -- Exclusions (do NOT invite these)
-  local hasWTS = s:find("%f[%a]wts%f[%A]") ~= nil
-  local hasLFW = s:find("%f[%a]lfw%f[%A]") ~= nil
-  if hasWTS or hasLFW then return false end
-
-  -- Require WTB or LF
-  local hasWTB = s:find("%f[%a]wtb%f[%A]") ~= nil
-  local hasLF = s:find("%f[%a]lf%f[%A]") ~= nil
-  if not (hasWTB or hasLF) then return false end
-
-  -- Require "fiery"/"feiry" and "weapon"
-  local hasFiery = (s:find("%f[%a]fiery%f[%A]") ~= nil) or (s:find("%f[%a]feiry%f[%A]") ~= nil)
-  local hasWeapon = s:find("%f[%a]weapon%f[%A]") ~= nil
-  return hasFiery and hasWeapon
-end
-
 local function MsgHasPortWord(msg)
   if type(msg) ~= "string" then return false end
   local s = msg:lower()
@@ -320,9 +293,7 @@ local function WhisperInvitee(shortName, portalRequest)
   end
 
   local msg
-  if portalRequest and portalRequest.kind == "enchant" then
-    msg = "Inviting you for Fiery Weapon enchant."
-  elseif portalRequest and portalRequest.dest then
+  if portalRequest and portalRequest.dest then
     msg = ("Let's get you to %s."):format(portalRequest.dest)
   else
     msg = "Where are you headed (org / tb / uc / shat / sm / stonard)?"
@@ -623,10 +594,8 @@ f:SetScript("OnEvent", function(_, event, ...)
   if event == "CHAT_MSG_YELL" then
     local msg, sender = ...
     Debug(2, ("YELL from %s: %q"):format(tostring(sender), tostring(msg)))
-    local isPortal = MsgHasPortalRequest(msg)
-    local isEnchant = MagePortalsDB.enchantEnabled and MsgHasEnchantRequest(msg)
-    if not isPortal and not isEnchant then
-      Debug(2, "Ignored: missing portal/enchant request keywords")
+    if not MsgHasPortalRequest(msg) then
+      Debug(2, "Ignored: missing portal request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
@@ -634,21 +603,15 @@ f:SetScript("OnEvent", function(_, event, ...)
       Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
       return
     end
-    if isPortal then
-      TryInvite(sender, "yell", GetRequestedPortalFromMsg(msg))
-    else
-      TryInvite(sender, "yell enchant", { kind = "enchant" })
-    end
+    TryInvite(sender, "yell", GetRequestedPortalFromMsg(msg))
     return
   end
 
   if event == "CHAT_MSG_SAY" then
     local msg, sender = ...
     Debug(2, ("SAY from %s: %q"):format(tostring(sender), tostring(msg)))
-    local isPortal = MsgHasPortalRequest(msg)
-    local isEnchant = MagePortalsDB.enchantEnabled and MsgHasEnchantRequest(msg)
-    if not isPortal and not isEnchant then
-      Debug(2, "Ignored: missing portal/enchant request keywords")
+    if not MsgHasPortalRequest(msg) then
+      Debug(2, "Ignored: missing portal request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
@@ -656,11 +619,7 @@ f:SetScript("OnEvent", function(_, event, ...)
       Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
       return
     end
-    if isPortal then
-      TryInvite(sender, "say", GetRequestedPortalFromMsg(msg))
-    else
-      TryInvite(sender, "say enchant", { kind = "enchant" })
-    end
+    TryInvite(sender, "say", GetRequestedPortalFromMsg(msg))
     return
   end
 
@@ -670,10 +629,8 @@ f:SetScript("OnEvent", function(_, event, ...)
     -- For whispers, allow plain "port/portal" without requiring "WTB"/"LF".
     -- People typically DM "org port?" / "stonard port?" directly.
     local portalRequest = GetRequestedPortalFromMsg(msg)
-    local isPortal = MsgHasPortalRequest(msg) or MsgHasPortWord(msg)
-    local isEnchant = MagePortalsDB.enchantEnabled and MsgHasEnchantRequest(msg)
-    if not isPortal and not isEnchant then
-      Debug(2, "Ignored: missing portal/enchant request keywords")
+    if not MsgHasPortalRequest(msg) and not MsgHasPortWord(msg) then
+      Debug(2, "Ignored: missing portal request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
@@ -681,11 +638,7 @@ f:SetScript("OnEvent", function(_, event, ...)
       Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
       return
     end
-    if isPortal then
-      TryInvite(sender, "whisper", portalRequest)
-    else
-      TryInvite(sender, "whisper enchant", { kind = "enchant" })
-    end
+    TryInvite(sender, "whisper", portalRequest)
     return
   end
 
@@ -701,15 +654,14 @@ f:SetScript("OnEvent", function(_, event, ...)
     end
 
     Debug(2, ("CHANNEL %s (%s) from %s: %q"):format(tostring(channelNumber), tostring(channelString), tostring(sender), tostring(msg)))
-    local isPortalMatch
+    local isMatch
     if channelNumber == 2 then
-      isPortalMatch = MsgHasPortalRequest_Channel2(msg)
+      isMatch = MsgHasPortalRequest_Channel2(msg)
     else
-      isPortalMatch = MsgHasPortalRequest(msg)
+      isMatch = MsgHasPortalRequest(msg)
     end
-    local isEnchantMatch = MagePortalsDB.enchantEnabled and MsgHasEnchantRequest(msg)
-    if not isPortalMatch and not isEnchantMatch then
-      Debug(2, channelNumber == 2 and "Ignored: /2 missing portal/enchant keywords (portal matching is stricter in /2)" or "Ignored: missing portal/enchant request keywords")
+    if not isMatch then
+      Debug(2, channelNumber == 2 and "Ignored: /2 requires 'WTB/LF' + 'port' and rejects explicit 'from <city>' unless it's 'from org'" or "Ignored: missing portal request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
@@ -717,11 +669,7 @@ f:SetScript("OnEvent", function(_, event, ...)
       Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
       return
     end
-    if isPortalMatch then
-      TryInvite(sender, ("channel %s"):format(channelString or "1"), GetRequestedPortalFromMsg(msg))
-    else
-      TryInvite(sender, ("channel %s enchant"):format(channelString or "1"), { kind = "enchant" })
-    end
+    TryInvite(sender, ("channel %s"):format(channelString or "1"), GetRequestedPortalFromMsg(msg))
     return
   end
 
@@ -767,7 +715,6 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     Print("/mp status    - show current status")
     Print("/mp throttle N- ignore repeat triggers from same player for N seconds (default 60)")
     Print("/mp ch2 on|off - also listen in /2 (Trade) (default off)")
-    Print("/mp enchant on|off - auto-invite WTB/LF Fiery Weapon (default off)")
     Print("/mp minimap on|off - show/hide the minimap icon (right-click icon to hide)")
     Print("/mp debug off|on|0|1|2 - debug logging (0=off, 1=basic, 2=verbose)")
     Print("/mp whisper on|off - whisper the invitee a confirmation / destination message")
@@ -795,10 +742,9 @@ SlashCmdList["MAGEPORTALS"] = function(input)
   end
 
   if cmdLower == "status" and restLower == "" then
-    Print(("Status: %s (ch2=%s, enchant=%s, whisper=%s, debug=%s, throttle=%ss)"):format(
+    Print(("Status: %s (ch2=%s, whisper=%s, debug=%s, throttle=%ss)"):format(
       MagePortalsDB.enabled and "on" or "off",
       MagePortalsDB.listenChannel2 and "on" or "off",
-      MagePortalsDB.enchantEnabled and "on" or "off",
       MagePortalsDB.whisperOnInvite and "on" or "off",
       tostring(MagePortalsDB.debugLevel or 0),
       tostring(MagePortalsDB.inviteThrottleSeconds)
@@ -824,16 +770,6 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     end
     MagePortalsDB.listenChannel2 = restLower == "on"
     Print(("/2 (Trade) listening %s."):format(MagePortalsDB.listenChannel2 and "enabled" or "disabled"))
-    return
-  end
-
-  if cmdLower == "enchant" then
-    if restLower ~= "on" and restLower ~= "off" then
-      Print("Usage: /mp enchant on|off")
-      return
-    end
-    MagePortalsDB.enchantEnabled = restLower == "on"
-    Print(("Enchant auto-invite %s."):format(MagePortalsDB.enchantEnabled and "enabled" or "disabled"))
     return
   end
 
