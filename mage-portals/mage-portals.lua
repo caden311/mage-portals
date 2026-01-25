@@ -36,6 +36,11 @@ local function EnsureDefaults()
     MagePortalsDB.listenChannel2 = false
   end
 
+  -- invite people who ask for mage water (LF/WTB water in public; any "water" in whispers); off by default
+  if MagePortalsDB.inviteOnWater == nil then
+    MagePortalsDB.inviteOnWater = false
+  end
+
   -- seconds to ignore repeated triggers from the same player
   if MagePortalsDB.inviteThrottleSeconds == nil then
     MagePortalsDB.inviteThrottleSeconds = 60
@@ -101,6 +106,27 @@ local function MsgHasPortalRequest(msg)
     (s:find("%f[%a]portals?%f[%A]") ~= nil)
 
   return (hasWTB or hasLF) and hasPort
+end
+
+local function MsgHasWaterRequest(msg, requireWTBLF)
+  if type(msg) ~= "string" then return false end
+  local s = msg:lower()
+
+  -- Word-boundary matches to avoid "waterlord" etc.
+  local hasWater =
+    (s:find("%f[%a]water%f[%A]") ~= nil) or
+    (s:find("%f[%a]waters%f[%A]") ~= nil)
+  if not hasWater then return false end
+
+  local hasWTB = s:find("%f[%a]wtb%f[%A]") ~= nil
+  local hasLF = s:find("%f[%a]lf%f[%A]") ~= nil
+
+  if requireWTBLF then
+    return (hasWTB or hasLF)
+  end
+
+  -- In whispers, allow plain "water" without requiring WTB/LF.
+  return true
 end
 
 -- When listening in /2 (Trade), be stricter to reduce false invites.
@@ -284,7 +310,7 @@ local function SendInviteByName(name)
   return false, "no invite API (InviteUnit/C_PartyInfo.InviteUnit missing)"
 end
 
-local function WhisperInvitee(shortName, portalRequest)
+local function WhisperInvitee(shortName, portalRequest, whisperOverride)
   if not MagePortalsDB.whisperOnInvite then return end
   if type(shortName) ~= "string" or shortName == "" then return end
   if type(SendChatMessage) ~= "function" then
@@ -293,7 +319,9 @@ local function WhisperInvitee(shortName, portalRequest)
   end
 
   local msg
-  if portalRequest and portalRequest.dest then
+  if type(whisperOverride) == "string" and whisperOverride ~= "" then
+    msg = whisperOverride
+  elseif portalRequest and portalRequest.dest then
     msg = ("Let's get you to %s."):format(portalRequest.dest)
   else
     msg = "Where are you headed (org / tb / uc / shat / sm / stonard)?"
@@ -331,7 +359,7 @@ local function CanAttemptInvite(sender)
   return true, nil
 end
 
-local function TryInvite(sender, reason, portalRequest)
+local function TryInvite(sender, reason, portalRequest, whisperOverride)
   local short = NormalizeSender(sender)
   local ok, why = CanSendInvite()
   if not ok then
@@ -364,7 +392,7 @@ local function TryInvite(sender, reason, portalRequest)
 
   Debug(1, ("Invite call dispatched via %s -> %s"):format(tostring(api), short))
   Print(("Invite attempt sent to %s (%s)"):format(short, reason))
-  WhisperInvitee(short, portalRequest)
+  WhisperInvitee(short, portalRequest, whisperOverride)
 end
 
 local f = CreateFrame("Frame")
@@ -594,8 +622,10 @@ f:SetScript("OnEvent", function(_, event, ...)
   if event == "CHAT_MSG_YELL" then
     local msg, sender = ...
     Debug(2, ("YELL from %s: %q"):format(tostring(sender), tostring(msg)))
-    if not MsgHasPortalRequest(msg) then
-      Debug(2, "Ignored: missing portal request keywords")
+    local isPortal = MsgHasPortalRequest(msg)
+    local isWater = MagePortalsDB.inviteOnWater and MsgHasWaterRequest(msg, true)
+    if not (isPortal or isWater) then
+      Debug(2, "Ignored: missing portal/water request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
@@ -603,15 +633,21 @@ f:SetScript("OnEvent", function(_, event, ...)
       Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
       return
     end
-    TryInvite(sender, "yell", GetRequestedPortalFromMsg(msg))
+    if isWater then
+      TryInvite(sender, "yell (water)", nil, "Inviting you for mage water.")
+    else
+      TryInvite(sender, "yell", GetRequestedPortalFromMsg(msg))
+    end
     return
   end
 
   if event == "CHAT_MSG_SAY" then
     local msg, sender = ...
     Debug(2, ("SAY from %s: %q"):format(tostring(sender), tostring(msg)))
-    if not MsgHasPortalRequest(msg) then
-      Debug(2, "Ignored: missing portal request keywords")
+    local isPortal = MsgHasPortalRequest(msg)
+    local isWater = MagePortalsDB.inviteOnWater and MsgHasWaterRequest(msg, true)
+    if not (isPortal or isWater) then
+      Debug(2, "Ignored: missing portal/water request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
@@ -619,7 +655,11 @@ f:SetScript("OnEvent", function(_, event, ...)
       Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
       return
     end
-    TryInvite(sender, "say", GetRequestedPortalFromMsg(msg))
+    if isWater then
+      TryInvite(sender, "say (water)", nil, "Inviting you for mage water.")
+    else
+      TryInvite(sender, "say", GetRequestedPortalFromMsg(msg))
+    end
     return
   end
 
@@ -629,8 +669,10 @@ f:SetScript("OnEvent", function(_, event, ...)
     -- For whispers, allow plain "port/portal" without requiring "WTB"/"LF".
     -- People typically DM "org port?" / "stonard port?" directly.
     local portalRequest = GetRequestedPortalFromMsg(msg)
-    if not MsgHasPortalRequest(msg) and not MsgHasPortWord(msg) then
-      Debug(2, "Ignored: missing portal request keywords")
+    local isPortal = MsgHasPortalRequest(msg) or MsgHasPortWord(msg)
+    local isWater = MagePortalsDB.inviteOnWater and MsgHasWaterRequest(msg, false)
+    if not (isPortal or isWater) then
+      Debug(2, "Ignored: missing portal/water request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
@@ -638,7 +680,11 @@ f:SetScript("OnEvent", function(_, event, ...)
       Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
       return
     end
-    TryInvite(sender, "whisper", portalRequest)
+    if isWater then
+      TryInvite(sender, "whisper (water)", nil, "Inviting you for mage water.")
+    else
+      TryInvite(sender, "whisper", portalRequest)
+    end
     return
   end
 
@@ -654,14 +700,17 @@ f:SetScript("OnEvent", function(_, event, ...)
     end
 
     Debug(2, ("CHANNEL %s (%s) from %s: %q"):format(tostring(channelNumber), tostring(channelString), tostring(sender), tostring(msg)))
-    local isMatch
+    local isPortalMatch
     if channelNumber == 2 then
-      isMatch = MsgHasPortalRequest_Channel2(msg)
+      isPortalMatch = MsgHasPortalRequest_Channel2(msg)
     else
-      isMatch = MsgHasPortalRequest(msg)
+      isPortalMatch = MsgHasPortalRequest(msg)
     end
-    if not isMatch then
-      Debug(2, channelNumber == 2 and "Ignored: /2 requires 'WTB/LF' + 'port' and rejects explicit 'from <city>' unless it's 'from org'" or "Ignored: missing portal request keywords")
+
+    local isWaterMatch = MagePortalsDB.inviteOnWater and MsgHasWaterRequest(msg, true)
+
+    if not (isPortalMatch or isWaterMatch) then
+      Debug(2, channelNumber == 2 and "Ignored: /2 requires 'WTB/LF' + 'port' (water requires 'WTB/LF' + 'water')" or "Ignored: missing portal/water request keywords")
       return
     end
     local ok, why = CanAttemptInvite(sender)
@@ -669,7 +718,11 @@ f:SetScript("OnEvent", function(_, event, ...)
       Debug(1, ("Invite blocked for %s: %s"):format(NormalizeSender(sender), tostring(why)))
       return
     end
-    TryInvite(sender, ("channel %s"):format(channelString or "1"), GetRequestedPortalFromMsg(msg))
+    if isWaterMatch then
+      TryInvite(sender, ("channel %s (water)"):format(channelString or "1"), nil, "Inviting you for mage water.")
+    else
+      TryInvite(sender, ("channel %s"):format(channelString or "1"), GetRequestedPortalFromMsg(msg))
+    end
     return
   end
 
@@ -715,6 +768,7 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     Print("/mp status    - show current status")
     Print("/mp throttle N- ignore repeat triggers from same player for N seconds (default 60)")
     Print("/mp ch2 on|off - also listen in /2 (Trade) (default off)")
+    Print("/mp water on|off - also invite people asking for mage water (default off)")
     Print("/mp minimap on|off - show/hide the minimap icon (right-click icon to hide)")
     Print("/mp debug off|on|0|1|2 - debug logging (0=off, 1=basic, 2=verbose)")
     Print("/mp whisper on|off - whisper the invitee a confirmation / destination message")
@@ -742,9 +796,10 @@ SlashCmdList["MAGEPORTALS"] = function(input)
   end
 
   if cmdLower == "status" and restLower == "" then
-    Print(("Status: %s (ch2=%s, whisper=%s, debug=%s, throttle=%ss)"):format(
+    Print(("Status: %s (ch2=%s, water=%s, whisper=%s, debug=%s, throttle=%ss)"):format(
       MagePortalsDB.enabled and "on" or "off",
       MagePortalsDB.listenChannel2 and "on" or "off",
+      MagePortalsDB.inviteOnWater and "on" or "off",
       MagePortalsDB.whisperOnInvite and "on" or "off",
       tostring(MagePortalsDB.debugLevel or 0),
       tostring(MagePortalsDB.inviteThrottleSeconds)
@@ -770,6 +825,16 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     end
     MagePortalsDB.listenChannel2 = restLower == "on"
     Print(("/2 (Trade) listening %s."):format(MagePortalsDB.listenChannel2 and "enabled" or "disabled"))
+    return
+  end
+
+  if cmdLower == "water" then
+    if restLower ~= "on" and restLower ~= "off" then
+      Print("Usage: /mp water on|off")
+      return
+    end
+    MagePortalsDB.inviteOnWater = restLower == "on"
+    Print(("Water invites %s."):format(MagePortalsDB.inviteOnWater and "enabled" or "disabled"))
     return
   end
 

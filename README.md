@@ -29,6 +29,7 @@ Auto-invites players who ask to buy a mage portal by saying **“WTB”** and **
 - `/mp status`: show status
 - `/mp throttle N`: don’t re-invite the same player for N seconds (default 60)
 - `/mp ch2 on|off`: also listen in /2 (Trade) (default off)
+- `/mp water on|off`: also invite people asking for mage water (default off)
 - `/mp minimap on|off`: show/hide the minimap icon (you can also right-click the icon to hide it)
 - `/mp whisper on|off`: whisper the invitee a confirmation / destination message
 - `/mp debug off|on|0|1|2`: debug logging (0=off, 1=basic, 2=verbose)
