@@ -31,9 +31,23 @@ local function EnsureDefaults()
     MagePortalsDB.whisperOnInvite = false
   end
 
+  -- Channel listening toggles
+  if MagePortalsDB.listenSay == nil then
+    MagePortalsDB.listenSay = true
+  end
+  if MagePortalsDB.listenYell == nil then
+    MagePortalsDB.listenYell = true
+  end
+  if MagePortalsDB.listenChannel1 == nil then
+    MagePortalsDB.listenChannel1 = true
+  end
   -- listen to /2 (Trade) as well as /1; off by default since we can't verify location pre-invite
   if MagePortalsDB.listenChannel2 == nil then
     MagePortalsDB.listenChannel2 = false
+  end
+  -- listen to whispers
+  if MagePortalsDB.listenWhisper == nil then
+    MagePortalsDB.listenWhisper = true
   end
 
   -- invite people who ask for mage water (LF/WTB water in public; any "water" in whispers); off by default
@@ -620,6 +634,10 @@ f:SetScript("OnEvent", function(_, event, ...)
   end
 
   if event == "CHAT_MSG_YELL" then
+    if not MagePortalsDB.listenYell then
+      Debug(2, "Ignored YELL: channel disabled")
+      return
+    end
     local msg, sender = ...
     Debug(2, ("YELL from %s: %q"):format(tostring(sender), tostring(msg)))
     local isPortal = MsgHasPortalRequest(msg)
@@ -642,6 +660,10 @@ f:SetScript("OnEvent", function(_, event, ...)
   end
 
   if event == "CHAT_MSG_SAY" then
+    if not MagePortalsDB.listenSay then
+      Debug(2, "Ignored SAY: channel disabled")
+      return
+    end
     local msg, sender = ...
     Debug(2, ("SAY from %s: %q"):format(tostring(sender), tostring(msg)))
     local isPortal = MsgHasPortalRequest(msg)
@@ -664,6 +686,10 @@ f:SetScript("OnEvent", function(_, event, ...)
   end
 
   if event == "CHAT_MSG_WHISPER" then
+    if not MagePortalsDB.listenWhisper then
+      Debug(2, "Ignored WHISPER: channel disabled")
+      return
+    end
     local msg, sender = ...
     Debug(2, ("WHISPER from %s: %q"):format(tostring(sender), tostring(msg)))
     -- For whispers, allow plain "port/portal" without requiring "WTB"/"LF".
@@ -693,8 +719,15 @@ f:SetScript("OnEvent", function(_, event, ...)
     local msg, sender, _, channelString, _, _, _, channelNumber = ...
     channelNumber = tonumber(channelNumber)
 
-    -- /1 General always; optionally /2 Trade (opt-in).
-    if channelNumber ~= 1 and not (channelNumber == 2 and MagePortalsDB.listenChannel2) then
+    -- Check channel-specific toggles
+    local listenToChannel = false
+    if channelNumber == 1 and MagePortalsDB.listenChannel1 then
+      listenToChannel = true
+    elseif channelNumber == 2 and MagePortalsDB.listenChannel2 then
+      listenToChannel = true
+    end
+
+    if not listenToChannel then
       Debug(2, ("Ignored channel %s (%s)"):format(tostring(channelNumber), tostring(channelString)))
       return
     end
@@ -796,9 +829,15 @@ SlashCmdList["MAGEPORTALS"] = function(input)
   end
 
   if cmdLower == "status" and restLower == "" then
-    Print(("Status: %s (ch2=%s, water=%s, whisper=%s, debug=%s, throttle=%ss)"):format(
-      MagePortalsDB.enabled and "on" or "off",
-      MagePortalsDB.listenChannel2 and "on" or "off",
+    Print(("Status: %s"):format(MagePortalsDB.enabled and "ON" or "OFF"))
+    Print(("  Channels: /s=%s, /y=%s, /w=%s, /1=%s, /2=%s"):format(
+      MagePortalsDB.listenSay and "on" or "off",
+      MagePortalsDB.listenYell and "on" or "off",
+      MagePortalsDB.listenWhisper and "on" or "off",
+      MagePortalsDB.listenChannel1 and "on" or "off",
+      MagePortalsDB.listenChannel2 and "on" or "off"
+    ))
+    Print(("  Options: water=%s, whisper=%s, debug=%s, throttle=%ss"):format(
       MagePortalsDB.inviteOnWater and "on" or "off",
       MagePortalsDB.whisperOnInvite and "on" or "off",
       tostring(MagePortalsDB.debugLevel or 0),
@@ -895,7 +934,220 @@ SlashCmdList["MAGEPORTALS"] = function(input)
     return
   end
 
+  if cmdLower == "settings" or cmdLower == "config" or cmdLower == "options" then
+    MagePortals_ToggleSettingsFrame()
+    return
+  end
+
   Print(("Unknown command: %q (try /mp help)"):format(raw))
 end
 
+--------------------------------------------------------------------------------
+-- Settings UI Frame
+--------------------------------------------------------------------------------
+local settingsFrame = nil
 
+local function CreateCheckbox(parent, label, x, y, getter, setter)
+  local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+  cb:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+  cb:SetSize(26, 26)
+
+  local text = cb:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+  text:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+  text:SetText(label)
+  cb._label = text
+
+  cb:SetScript("OnClick", function(self)
+    local checked = self:GetChecked()
+    setter(checked)
+    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+  end)
+
+  cb._getter = getter
+  cb._setter = setter
+
+  cb:SetChecked(getter())
+  return cb
+end
+
+local function CreateSettingsFrame()
+  if settingsFrame then return settingsFrame end
+
+  -- Main frame
+  local frame = CreateFrame("Frame", "MagePortalsSettingsFrame", UIParent, "BasicFrameTemplateWithInset")
+  frame:SetSize(340, 380)
+  frame:SetPoint("CENTER", UIParent, "CENTER", 0, 50)
+  frame:SetMovable(true)
+  frame:EnableMouse(true)
+  frame:RegisterForDrag("LeftButton")
+  frame:SetScript("OnDragStart", frame.StartMoving)
+  frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+  frame:SetFrameStrata("DIALOG")
+  frame:SetClampedToScreen(true)
+  frame:Hide()
+
+  -- Title
+  frame.TitleText:SetText("Mage Portals Settings")
+
+  -- Enable/Disable toggle button
+  local toggleBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+  toggleBtn:SetSize(140, 28)
+  toggleBtn:SetPoint("TOP", frame, "TOP", 0, -35)
+  toggleBtn._updateText = function(self)
+    if MagePortalsDB.enabled then
+      self:SetText("|cff00ff00ADDON ON|r - Click to Disable")
+    else
+      self:SetText("|cffff0000ADDON OFF|r - Click to Enable")
+    end
+  end
+  toggleBtn:SetScript("OnClick", function(self)
+    SetAddonEnabled(not MagePortalsDB.enabled)
+    self:_updateText()
+    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION or 857)
+  end)
+  toggleBtn:SetSize(200, 28)
+  frame._toggleBtn = toggleBtn
+
+  -- Divider line
+  local divider1 = frame:CreateTexture(nil, "ARTWORK")
+  divider1:SetColorTexture(0.4, 0.4, 0.4, 0.8)
+  divider1:SetSize(300, 1)
+  divider1:SetPoint("TOP", frame, "TOP", 0, -72)
+
+  -- Section: Channels
+  local channelHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  channelHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -82)
+  channelHeader:SetText("|cffffcc00Listen to Channels|r")
+
+  local checkboxes = {}
+
+  -- Channel checkboxes
+  checkboxes.say = CreateCheckbox(frame, "/s (Say)", 20, -105,
+    function() return MagePortalsDB.listenSay end,
+    function(v) MagePortalsDB.listenSay = v end
+  )
+
+  checkboxes.yell = CreateCheckbox(frame, "/y (Yell)", 160, -105,
+    function() return MagePortalsDB.listenYell end,
+    function(v) MagePortalsDB.listenYell = v end
+  )
+
+  checkboxes.whisper = CreateCheckbox(frame, "/w (Whisper)", 20, -130,
+    function() return MagePortalsDB.listenWhisper end,
+    function(v) MagePortalsDB.listenWhisper = v end
+  )
+
+  checkboxes.ch1 = CreateCheckbox(frame, "/1 (General)", 160, -130,
+    function() return MagePortalsDB.listenChannel1 end,
+    function(v) MagePortalsDB.listenChannel1 = v end
+  )
+
+  checkboxes.ch2 = CreateCheckbox(frame, "/2 (Trade)", 20, -155,
+    function() return MagePortalsDB.listenChannel2 end,
+    function(v) MagePortalsDB.listenChannel2 = v end
+  )
+
+  -- Divider line
+  local divider2 = frame:CreateTexture(nil, "ARTWORK")
+  divider2:SetColorTexture(0.4, 0.4, 0.4, 0.8)
+  divider2:SetSize(300, 1)
+  divider2:SetPoint("TOP", frame, "TOP", 0, -188)
+
+  -- Section: Options
+  local optionsHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  optionsHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -198)
+  optionsHeader:SetText("|cffffcc00Options|r")
+
+  checkboxes.water = CreateCheckbox(frame, "Invite on Water requests", 20, -220,
+    function() return MagePortalsDB.inviteOnWater end,
+    function(v) MagePortalsDB.inviteOnWater = v end
+  )
+
+  checkboxes.whisperInvite = CreateCheckbox(frame, "Whisper invitee on invite", 20, -245,
+    function() return MagePortalsDB.whisperOnInvite end,
+    function(v) MagePortalsDB.whisperOnInvite = v end
+  )
+
+  checkboxes.minimap = CreateCheckbox(frame, "Show Minimap Icon", 20, -270,
+    function() return not MagePortalsDB.minimap.hide end,
+    function(v)
+      MagePortalsDB.minimap.hide = not v
+      if minimapButton then
+        if v then minimapButton:Show() else minimapButton:Hide() end
+      end
+    end
+  )
+
+  -- Divider line
+  local divider3 = frame:CreateTexture(nil, "ARTWORK")
+  divider3:SetColorTexture(0.4, 0.4, 0.4, 0.8)
+  divider3:SetSize(300, 1)
+  divider3:SetPoint("TOP", frame, "TOP", 0, -303)
+
+  -- Debug dropdown
+  local debugHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  debugHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -313)
+  debugHeader:SetText("|cffffcc00Debug Level|r")
+
+  local debugBtns = {}
+  local debugLevels = { { label = "Off", val = 0 }, { label = "Basic", val = 1 }, { label = "Verbose", val = 2 } }
+  for i, dbg in ipairs(debugLevels) do
+    local btn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+    btn:SetSize(80, 22)
+    btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 20 + (i - 1) * 90, -333)
+    btn:SetText(dbg.label)
+    btn._val = dbg.val
+    btn:SetScript("OnClick", function()
+      MagePortalsDB.debugLevel = dbg.val
+      for _, b in ipairs(debugBtns) do
+        if b._val == MagePortalsDB.debugLevel then
+          b:SetButtonState("PUSHED", true)
+        else
+          b:SetButtonState("NORMAL")
+        end
+      end
+      PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+    end)
+    table.insert(debugBtns, btn)
+  end
+  frame._debugBtns = debugBtns
+
+  -- Store references for refresh
+  frame._checkboxes = checkboxes
+
+  -- Refresh function
+  frame._refresh = function()
+    for _, cb in pairs(checkboxes) do
+      if cb._getter then
+        cb:SetChecked(cb._getter())
+      end
+    end
+    toggleBtn:_updateText()
+    for _, b in ipairs(debugBtns) do
+      if b._val == (MagePortalsDB.debugLevel or 0) then
+        b:SetButtonState("PUSHED", true)
+      else
+        b:SetButtonState("NORMAL")
+      end
+    end
+  end
+
+  frame:SetScript("OnShow", function(self)
+    self._refresh()
+  end)
+
+  settingsFrame = frame
+  return frame
+end
+
+function MagePortals_ToggleSettingsFrame()
+  local frame = CreateSettingsFrame()
+  if frame:IsShown() then
+    frame:Hide()
+  else
+    frame:Show()
+    frame._refresh()
+  end
+end
+
+-- Also make settings accessible via minimap button shift-click
