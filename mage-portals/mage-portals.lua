@@ -540,6 +540,12 @@ local function EnsureMinimapButton()
       return
     end
 
+    -- Shift+click opens settings
+    if IsShiftKeyDown() then
+      MagePortals_ToggleSettingsFrame()
+      return
+    end
+
     SetAddonEnabled(not MagePortalsDB.enabled)
     Print(MagePortalsDB.enabled and "Enabled." or "Disabled.")
   end)
@@ -550,8 +556,9 @@ local function EnsureMinimapButton()
     GameTooltip:ClearLines()
     GameTooltip:AddLine(ADDON_NAME)
     GameTooltip:AddLine(("Status: %s"):format(MagePortalsDB.enabled and "ON" or "OFF"), 1, 1, 1)
-    GameTooltip:AddLine("Left-click: Toggle", 0.8, 0.8, 0.8)
-    GameTooltip:AddLine("Right-click: Hide", 0.8, 0.8, 0.8)
+    GameTooltip:AddLine("Left-click: Toggle on/off", 0.8, 0.8, 0.8)
+    GameTooltip:AddLine("Shift+click: Settings", 0.8, 0.8, 0.8)
+    GameTooltip:AddLine("Right-click: Hide icon", 0.8, 0.8, 0.8)
     GameTooltip:AddLine("Drag: Move", 0.8, 0.8, 0.8)
     GameTooltip:Show()
   end)
@@ -975,7 +982,7 @@ local function CreateSettingsFrame()
 
   -- Main frame
   local frame = CreateFrame("Frame", "MagePortalsSettingsFrame", UIParent, "BasicFrameTemplateWithInset")
-  frame:SetSize(340, 380)
+  frame:SetSize(340, 310)
   frame:SetPoint("CENTER", UIParent, "CENTER", 0, 50)
   frame:SetMovable(true)
   frame:EnableMouse(true)
@@ -1078,40 +1085,6 @@ local function CreateSettingsFrame()
     end
   )
 
-  -- Divider line
-  local divider3 = frame:CreateTexture(nil, "ARTWORK")
-  divider3:SetColorTexture(0.4, 0.4, 0.4, 0.8)
-  divider3:SetSize(300, 1)
-  divider3:SetPoint("TOP", frame, "TOP", 0, -303)
-
-  -- Debug dropdown
-  local debugHeader = frame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-  debugHeader:SetPoint("TOPLEFT", frame, "TOPLEFT", 20, -313)
-  debugHeader:SetText("|cffffcc00Debug Level|r")
-
-  local debugBtns = {}
-  local debugLevels = { { label = "Off", val = 0 }, { label = "Basic", val = 1 }, { label = "Verbose", val = 2 } }
-  for i, dbg in ipairs(debugLevels) do
-    local btn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-    btn:SetSize(80, 22)
-    btn:SetPoint("TOPLEFT", frame, "TOPLEFT", 20 + (i - 1) * 90, -333)
-    btn:SetText(dbg.label)
-    btn._val = dbg.val
-    btn:SetScript("OnClick", function()
-      MagePortalsDB.debugLevel = dbg.val
-      for _, b in ipairs(debugBtns) do
-        if b._val == MagePortalsDB.debugLevel then
-          b:SetButtonState("PUSHED", true)
-        else
-          b:SetButtonState("NORMAL")
-        end
-      end
-      PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
-    end)
-    table.insert(debugBtns, btn)
-  end
-  frame._debugBtns = debugBtns
-
   -- Store references for refresh
   frame._checkboxes = checkboxes
 
@@ -1123,13 +1096,6 @@ local function CreateSettingsFrame()
       end
     end
     toggleBtn:_updateText()
-    for _, b in ipairs(debugBtns) do
-      if b._val == (MagePortalsDB.debugLevel or 0) then
-        b:SetButtonState("PUSHED", true)
-      else
-        b:SetButtonState("NORMAL")
-      end
-    end
   end
 
   frame:SetScript("OnShow", function(self)
@@ -1150,4 +1116,154 @@ function MagePortals_ToggleSettingsFrame()
   end
 end
 
--- Also make settings accessible via minimap button shift-click
+--------------------------------------------------------------------------------
+-- Interface Options Panel (Esc -> Options -> AddOns)
+--------------------------------------------------------------------------------
+local optionsPanel = nil
+
+local function CreateOptionsPanel()
+  if optionsPanel then return optionsPanel end
+
+  local panel = CreateFrame("Frame", "MagePortalsOptionsPanel", UIParent)
+  panel.name = "Mage Portals"
+
+  -- Title
+  local title = panel:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
+  title:SetPoint("TOPLEFT", 16, -16)
+  title:SetText("|cff33ff99Mage Portals|r")
+
+  -- Subtitle/description
+  local desc = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  desc:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -8)
+  desc:SetText("Auto-invite players who ask for portals in chat.")
+
+  -- Enable/Disable toggle button
+  local toggleBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+  toggleBtn:SetSize(200, 28)
+  toggleBtn:SetPoint("TOPLEFT", desc, "BOTTOMLEFT", 0, -20)
+  toggleBtn._updateText = function(self)
+    if MagePortalsDB.enabled then
+      self:SetText("|cff00ff00ADDON ON|r - Click to Disable")
+    else
+      self:SetText("|cffff0000ADDON OFF|r - Click to Enable")
+    end
+  end
+  toggleBtn:SetScript("OnClick", function(self)
+    SetAddonEnabled(not MagePortalsDB.enabled)
+    self:_updateText()
+    PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION or 857)
+  end)
+  panel._toggleBtn = toggleBtn
+
+  -- Section: Channels
+  local channelHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  channelHeader:SetPoint("TOPLEFT", toggleBtn, "BOTTOMLEFT", 0, -20)
+  channelHeader:SetText("|cffffcc00Listen to Channels|r")
+
+  local checkboxes = {}
+  local yOffset = -15
+
+  -- Helper to create checkbox for options panel
+  local function MakeCheckbox(parent, anchor, xOff, yOff, label, getter, setter)
+    local cb = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
+    cb:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", xOff, yOff)
+    cb:SetSize(26, 26)
+    local text = cb:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+    text:SetPoint("LEFT", cb, "RIGHT", 4, 0)
+    text:SetText(label)
+    cb:SetScript("OnClick", function(self)
+      setter(self:GetChecked())
+      PlaySound(SOUNDKIT and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or 856)
+    end)
+    cb._getter = getter
+    cb._setter = setter
+    cb:SetChecked(getter())
+    return cb
+  end
+
+  checkboxes.say = MakeCheckbox(panel, channelHeader, 0, yOffset, "/s (Say)",
+    function() return MagePortalsDB.listenSay end,
+    function(v) MagePortalsDB.listenSay = v end
+  )
+
+  checkboxes.yell = MakeCheckbox(panel, channelHeader, 140, yOffset, "/y (Yell)",
+    function() return MagePortalsDB.listenYell end,
+    function(v) MagePortalsDB.listenYell = v end
+  )
+
+  checkboxes.whisper = MakeCheckbox(panel, checkboxes.say, 0, -5, "/w (Whisper)",
+    function() return MagePortalsDB.listenWhisper end,
+    function(v) MagePortalsDB.listenWhisper = v end
+  )
+
+  checkboxes.ch1 = MakeCheckbox(panel, checkboxes.yell, 0, -5, "/1 (General)",
+    function() return MagePortalsDB.listenChannel1 end,
+    function(v) MagePortalsDB.listenChannel1 = v end
+  )
+
+  checkboxes.ch2 = MakeCheckbox(panel, checkboxes.whisper, 0, -5, "/2 (Trade)",
+    function() return MagePortalsDB.listenChannel2 end,
+    function(v) MagePortalsDB.listenChannel2 = v end
+  )
+
+  -- Section: Options
+  local optionsHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  optionsHeader:SetPoint("TOPLEFT", checkboxes.ch2, "BOTTOMLEFT", 0, -15)
+  optionsHeader:SetText("|cffffcc00Options|r")
+
+  checkboxes.water = MakeCheckbox(panel, optionsHeader, 0, yOffset, "Invite on Water requests",
+    function() return MagePortalsDB.inviteOnWater end,
+    function(v) MagePortalsDB.inviteOnWater = v end
+  )
+
+  checkboxes.whisperInvite = MakeCheckbox(panel, checkboxes.water, 0, -5, "Whisper invitee on invite",
+    function() return MagePortalsDB.whisperOnInvite end,
+    function(v) MagePortalsDB.whisperOnInvite = v end
+  )
+
+  checkboxes.minimap = MakeCheckbox(panel, checkboxes.whisperInvite, 0, -5, "Show Minimap Icon",
+    function() return not MagePortalsDB.minimap.hide end,
+    function(v)
+      MagePortalsDB.minimap.hide = not v
+      if minimapButton then
+        if v then minimapButton:Show() else minimapButton:Hide() end
+      end
+    end
+  )
+
+  panel._checkboxes = checkboxes
+
+  -- Refresh function called when panel is shown
+  panel._refresh = function()
+    for _, cb in pairs(checkboxes) do
+      if cb._getter then
+        cb:SetChecked(cb._getter())
+      end
+    end
+    toggleBtn:_updateText()
+  end
+
+  panel:SetScript("OnShow", function(self)
+    self._refresh()
+  end)
+
+  -- Register with Interface Options
+  if InterfaceOptions_AddCategory then
+    InterfaceOptions_AddCategory(panel)
+  elseif Settings and Settings.RegisterCanvasLayoutCategory then
+    -- Retail/newer API
+    local category = Settings.RegisterCanvasLayoutCategory(panel, panel.name)
+    Settings.RegisterAddOnCategory(category)
+    panel._category = category
+  end
+
+  optionsPanel = panel
+  return panel
+end
+
+-- Create the options panel when the addon loads
+local optionsPanelLoader = CreateFrame("Frame")
+optionsPanelLoader:RegisterEvent("PLAYER_LOGIN")
+optionsPanelLoader:SetScript("OnEvent", function()
+  CreateOptionsPanel()
+end)
