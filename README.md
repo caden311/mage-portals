@@ -58,3 +58,5 @@ WoW generally blocks **fully automatic spell casting** from addons.
 
 
 # mage-portals
+
+[Read the full write up](https://vientapps.com/blog/building-mage-portals/)
